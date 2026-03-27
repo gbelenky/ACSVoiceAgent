@@ -1,0 +1,16 @@
+## Azure Developer CLI
+.azure/
+
+## .NET
+bin/
+obj/
+*.user
+*.suo
+*.cache
+*.log
+
+## App settings with secrets
+appsettings.Development.json
+
+## Confidential customer documents
+cost-estimate-*.md
