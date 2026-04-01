@@ -178,7 +178,7 @@ public class AzureVoiceLiveService
 
         sessionOptions.Tools.Add(new VoiceLiveFunctionDefinition("end_call")
         {
-            Description = "End the current phone call and disconnect. Invoke after saying goodbye. Never speak this tool's name aloud.",
+            Description = "End the current phone call. You MUST call this tool IMMEDIATELY when the caller says goodbye or indicates they are done. Do not speak before calling this tool — call it first, then say goodbye after it returns.",
             Parameters = BinaryData.FromString("""
                 {
                     "type": "object",
@@ -366,9 +366,9 @@ public class AzureVoiceLiveService
 
         return Task.FromResult(JsonSerializer.Serialize(new
         {
-            status = "Call ending",
+            status = "Call will end in a few seconds",
             reason,
-            instruction = "Say a brief goodbye to the caller before the call ends."
+            instruction = "Say a single brief goodbye sentence to the caller. Keep it very short."
         }));
     }
 
