@@ -1,6 +1,6 @@
-# ACS Voice Agent with Azure AI Voice Live SDK
+# ACS Voice Agent with Azure AI Foundry Agent + Voice Live SDK
 
-A C# ASP.NET Core minimal API that bridges **Azure Communication Services (ACS)** incoming phone calls with the **Azure AI Voice Live API** (`gpt-realtime-mini`) for real-time AI-powered voice conversations.
+A C# ASP.NET Core minimal API that bridges **Azure Communication Services (ACS)** incoming phone calls with the **Azure AI Voice Live API** via a **Foundry Agent** (`gpt-realtime-mini`) for real-time AI-powered voice conversations. The Foundry Agent manages tools, instructions, and voice configuration — the C# app handles the audio bridge and client-side function dispatch.
 
 ## Architecture
 
@@ -8,24 +8,40 @@ A C# ASP.NET Core minimal API that bridges **Azure Communication Services (ACS)*
 Phone Call → ACS (EventGrid) → /api/incomingCall
     → AnswerCall with bidirectional MediaStreaming
     → ACS Audio WebSocket (/ws) ↔ AcsMediaStreamingHandler ↔ AzureVoiceLiveService
-    → VoiceLiveClient/VoiceLiveSession (Azure.AI.VoiceLive SDK)
-    → gpt-realtime-mini with 8 function tools
+    → VoiceLiveClient with SessionTarget.FromAgent (Entra ID auth)
+    → Foundry Agent (gpt-realtime-mini + file_search + 8 function tools)
+    → Function tools dispatched client-side via AgentFunctions.cs
+    → file_search (product catalog) handled server-side by Foundry Agent
 ```
+
+### Hybrid Architecture
+
+This branch uses a **hybrid approach** where the Foundry Agent is the control plane and the C# app is the execution plane:
+
+| Layer | Responsibility | Where |
+|---|---|---|
+| **Tool definitions** | All 9 tools defined in Foundry Agent metadata | `agent_manager.py` → Foundry |
+| **Instructions / system prompt** | Loaded into Foundry Agent at creation | `Prompts/system-prompt.txt` |
+| **Voice config** | Audio format configured in session options | `AzureVoiceLiveService.cs` |
+| **Function dispatch** (8 tools) | Executed client-side in C# event loop | `AgentFunctions.cs` |
+| **file_search** (product catalog) | Executed server-side by Foundry Agent | Vector store in Foundry |
+| **Audio bridge** | Bidirectional ACS ↔ Voice Live | `AzureVoiceLiveService.cs` |
 
 ## Agent Tools
 
-| Tool | Description |
-|---|---|
-| `customer_lookup` | Look up customer info by phone number or customer ID |
-| `order_status` | Check order tracking status |
-| `check_appointment` | Check existing appointment details |
-| `book_appointment` | Book a new appointment |
-| `cancel_appointment` | Cancel an existing appointment |
-| `search_knowledge_base` | Search FAQ/knowledge base by keyword |
-| `transfer_call` | Transfer the call to a human agent via ACS (fixed number from config) |
-| `end_call` | End the current call and disconnect |
+| Tool | Type | Dispatch | Description |
+|---|---|---|---|
+| `customer_lookup` | Function | Client-side (C#) | Look up customer info by phone number or customer ID |
+| `order_status` | Function | Client-side (C#) | Check order tracking status |
+| `check_appointment` | Function | Client-side (C#) | Check existing appointment details |
+| `book_appointment` | Function | Client-side (C#) | Book a new appointment |
+| `cancel_appointment` | Function | Client-side (C#) | Cancel an existing appointment |
+| `search_knowledge_base` | Function | Client-side (C#) | Search FAQ/knowledge base by keyword |
+| `transfer_call` | Function | Client-side (C#) | Transfer the call to a human agent via ACS |
+| `end_call` | Function | Client-side (C#) | End the current call and disconnect |
+| `file_search` | File Search | Server-side (Foundry) | Search the product catalog (vector store) |
 
-Tools use simulated in-memory data (defined in `AgentFunctions.cs`) except `transfer_call` and `end_call`, which perform real ACS operations.
+**Client-side tools** use simulated in-memory data (defined in `AgentFunctions.cs`) except `transfer_call` and `end_call`, which perform real ACS operations. **Server-side `file_search`** is handled entirely by the Foundry Agent using a vector store over `product-catalog.md`.
 
 ## Voice & Audio Configuration
 
@@ -66,9 +82,14 @@ Server-side noise reduction is configured via `AudioNoiseReductionType`. Availab
 ## Prerequisites
 
 - [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0)
+- [Azure Developer CLI (azd)](https://aka.ms/azd-install) — provisions infrastructure + creates the Foundry Agent
+- [Azure CLI (az)](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli) — used by azd hooks
+- [Python 3.10+](https://www.python.org/) and [uv](https://docs.astral.sh/uv/) — for the agent manager script
 - An **Azure Communication Services** resource with a phone number configured for incoming calls
-- An **Azure AI Foundry** resource with a `gpt-realtime-mini` model deployment
-- A tunneling tool to expose your local server ([Azure Dev Tunnels](https://learn.microsoft.com/en-us/azure/developer/dev-tunnels/overview) or [ngrok](https://ngrok.com/))
+- An **Azure subscription** in a [supported region](https://learn.microsoft.com/en-us/azure/ai-services/openai/concepts/models#model-summary-table-and-region-availability) for `gpt-4.1-mini` (`eastus2`, `swedencentral`, `australiaeast`, or `northcentralus`)
+- A tunneling tool for local development ([Azure Dev Tunnels](https://learn.microsoft.com/en-us/azure/developer/dev-tunnels/overview) or [ngrok](https://ngrok.com/))
+
+> **Note**: Unlike the `main` branch, this branch uses **Entra ID authentication** (via `DefaultAzureCredential`) — no API keys needed. The `azd up` flow provisions the AI Services resource, Foundry Project, model deployment, and RBAC automatically.
 
 ## Local Setup
 
@@ -99,9 +120,10 @@ For local development, fill in your values in `appsettings.Development.json` (th
 {
   "DevTunnelUri": "https://<your-tunnel-url>",
   "AcsConnectionString": "endpoint=https://<your-acs>.communication.azure.com/;accesskey=<key>",
-  "AzureVoiceLiveApiKey": "<your-azure-ai-foundry-api-key>",
-  "AzureVoiceLiveEndpoint": "https://<your-foundry-resource>.cognitiveservices.azure.com",
-  "VoiceLiveModel": "gpt-realtime-mini"
+  "VoiceLiveEndpoint": "https://<your-ai-services>.cognitiveservices.azure.com",
+  "FoundryAgentName": "VoiceLiveAgent",
+  "FoundryProjectName": "voiceAgentProject",
+  "FoundryAgentVersion": "<version-from-azd-up>"
 }
 ```
 
@@ -109,10 +131,13 @@ For local development, fill in your values in `appsettings.Development.json` (th
 |---|---|
 | `DevTunnelUri` | Your dev tunnel URL (used as the callback and WebSocket base URL) |
 | `AcsConnectionString` | Connection string from your ACS resource (Azure Portal → Keys) |
-| `AzureVoiceLiveApiKey` | API key from your Azure AI Foundry resource |
-| `AzureVoiceLiveEndpoint` | Azure AI Foundry endpoint URL (the `.cognitiveservices.azure.com` endpoint) |
-| `VoiceLiveModel` | Model deployment name (default: `gpt-realtime-mini`) |
+| `VoiceLiveEndpoint` | Azure AI Services endpoint (the `.cognitiveservices.azure.com` URL, provisioned by `azd up`) |
+| `FoundryAgentName` | Name of the Foundry Agent (default: `VoiceLiveAgent`, created by `azd up`) |
+| `FoundryProjectName` | Name of the Foundry Project (default: `voiceAgentProject`, created by `azd up`) |
+| `FoundryAgentVersion` | Agent version string (set automatically on App Service by `azd up`, copy locally from Azure Portal for dev) |
 | `TransferPhoneNumber` | Phone number for call transfers (e.g. `+4922147114711`) |
+
+> **Authentication**: This branch uses `DefaultAzureCredential`. For local development, sign in via `az login` or `azd auth login`. No API key needed — your Azure user must have the **Azure AI User** role on the AI Services resource (configured by `azd up`).
 
 > **Tip**: You can also use [User Secrets](https://learn.microsoft.com/en-us/aspnet/core/security/app-secrets) to keep credentials out of config files entirely.
 
@@ -164,17 +189,30 @@ info: Microsoft.Hosting.Lifetime[14]
 ├── ACSVoiceAgent.csproj                # .NET 8 project file
 ├── appsettings.json                    # Configuration (defaults)
 ├── appsettings.Development.json        # Local development configuration (add your secrets here)
+├── azure.yaml                          # azd project file with agent lifecycle hooks
 ├── Models/
 │   └── CallSession.cs                  # Call session model (state per active call)
 ├── Prompts/
-│   └── system-prompt.txt               # Agent system prompt (plain text, easy to edit)
+│   └── system-prompt.txt               # Agent system prompt (loaded into Foundry Agent)
 ├── Services/
 │   ├── AcsMediaStreamingHandler.cs     # ACS WebSocket send/receive
-│   ├── AgentFunctions.cs               # Simulated tool implementations + mock data
-│   ├── AzureVoiceLiveService.cs        # Voice Live session, tool definitions, event loop
+│   ├── AgentFunctions.cs               # Client-side tool implementations + mock data
+│   ├── AzureVoiceLiveService.cs        # Voice Live session via Foundry Agent, event loop, function dispatch
 │   └── CallSessionManager.cs           # In-process call state (ConcurrentDictionary)
-├── infra/                              # Bicep IaC templates
-├── azure.yaml                          # Azure Developer CLI project file
+├── scripts/
+│   ├── agent_manager.py                # Creates/deletes Foundry Agent + vector store (azd hooks)
+│   ├── pyproject.toml                  # Python dependencies (azure-ai-projects, azure-identity)
+│   └── docs/
+│       └── product-catalog.md          # Product catalog indexed by file_search vector store
+├── infra/
+│   ├── main.bicep                      # Main infrastructure definition
+│   ├── main.parameters.json            # Parameter mappings for azd
+│   └── app/
+│       ├── web.bicep                   # App Service + App Insights + Dashboard
+│       ├── ai/
+│       │   └── cognitive-services.bicep # AI Services + Foundry Project + model deployment
+│       └── rbac/
+│           └── openai-access.bicep     # Reusable RBAC role assignment module
 └── README.md
 ```
 
@@ -190,12 +228,45 @@ The `end_call` tool uses a non-blocking design to ensure goodbye audio plays ful
 
 ## Key Design Decisions
 
+- **Foundry Agent as control plane**: Tool definitions and system prompt are managed in the Foundry Agent — not hardcoded in C#. This enables updating agent behavior (prompt, tools) without redeploying the app.
+- **Hybrid tool dispatch**: Function tools are dispatched client-side in C# for low-latency execution. `file_search` runs server-side in Foundry for RAG over the product catalog. This gives the best of both worlds.
+- **Entra ID authentication**: Uses `DefaultAzureCredential` instead of API keys. RBAC (`Azure AI User`) is provisioned via Bicep for the developer, App Service managed identity, and Foundry Project identity.
+- **Stateless agent, ephemeral sessions**: The Foundry Agent itself is stateless. Conversation history lives only in the Voice Live session (server-side) and the in-process `CallSession` (C#). No cross-call persistence.
 - **In-process state**: Active calls are tracked in a `ConcurrentDictionary`. If the process crashes, live calls are lost — this is intentional since WebSocket/audio sessions can't be resumed.
 - **Audio format**: PCM 24kHz mono for ACS media streaming, PCM 16-bit for Voice Live.
 - **HD voice**: Uses `en-US-Ava:DragonHDLatestNeural` via `AzureStandardVoice` for higher-quality speech synthesis.
 - **Server-side audio processing**: Noise reduction (`FarField` mode) and echo cancellation are enabled in the Voice Live session to improve clarity on phone calls.
-- **System prompt as file**: Stored in `Prompts/system-prompt.txt` (copied to output on build) instead of in appsettings, for readability and easier editing.
+- **System prompt as file**: Stored in `Prompts/system-prompt.txt` and loaded into the Foundry Agent at creation time by `agent_manager.py`.
 - **No durable orchestration**: Real-time bidirectional audio has zero recovery benefit from checkpointing. Post-call workflows (summarization, CRM updates) would be good candidates for durable orchestrations if added later.
+
+## Differences from `main` Branch
+
+| Aspect | `main` | `foundry-agent` |
+|---|---|---|
+| **Authentication** | API key | Entra ID (`DefaultAzureCredential`) |
+| **Voice Live connection** | `VoiceLiveSessionOptions` with inline tools | `SessionTarget.FromAgent(AgentSessionConfig)` |
+| **Tool definitions** | Hardcoded in `AzureVoiceLiveService.cs` | Defined in Foundry Agent (via `agent_manager.py`) |
+| **System prompt** | Loaded from file into session options | Loaded from file into Foundry Agent metadata |
+| **Product catalog** | N/A | `file_search` over vector store |
+| **SDK version** | `Azure.AI.VoiceLive` 1.0.0 (GA) | `Azure.AI.VoiceLive` 1.1.0-beta.3 (preview) |
+| **IaC** | App Service only | AI Services + Foundry Project + model + RBAC + App Service |
+| **Agent lifecycle** | N/A | `azd` hooks create/delete agent + vector store |
+
+## What Foundry Agent Adds over Pure Voice Live
+
+The Foundry Agent doesn't change the realtime model or audio pipeline — it adds a management and evaluation layer on top:
+
+| Capability | Pure Voice Live (`main`) | Foundry Agent (this branch) |
+|---|---|---|
+| **Agent versioning** | None — changes require redeployment | `create_version()` — compare v1 vs v2 side by side |
+| **Tracing** | Manual logging only | Built-in Foundry tracing (tool calls, latencies, token usage) |
+| **Evaluation SDK** | Build your own pipeline from scratch | Native integration — evaluators work out of the box |
+| **Prompt optimization** | Manual trial-and-error | Foundry prompt optimizer iterates using eval scores |
+| **file_search (RAG)** | N/A | Server-side retrieval over product catalog with measurable precision |
+| **Dataset from traces** | Export and parse logs manually | Curate evaluation datasets directly from production traces |
+| **A/B testing** | Deploy two separate apps | Two agent versions, same app, switch by version string |
+
+**Cost impact**: Negligible. The realtime model (~95% of AI cost) is identical in both approaches. Foundry Agent metadata is free, vector store storage is ~$0.10/GB/day, and file_search retrieval only adds tokens on product queries.
 
 ## Scaling to Production (20K+ Calls/Day)
 
@@ -288,55 +359,64 @@ Additional advantages for this workload:
 
 ## Deployment with Azure Developer CLI (azd)
 
-The project includes `azd` infrastructure to deploy to **Azure App Service**. The ACS resource and AI model are assumed to already exist.
+The project includes full `azd` infrastructure to deploy to **Azure App Service** with a **Foundry Agent** created automatically as part of the provisioning flow.
 
 ### What gets provisioned
 
 | Resource | SKU | Why |
 |---|---|---|
 | Resource Group | — | Container for all resources |
+| AI Services | S0 | Hosts the Voice Live API + model deployments |
+| Foundry Project | — | `voiceAgentProject` — manages the agent and vector store |
+| Model Deployment | `gpt-4.1-mini` GlobalStandard | Realtime model for voice conversations |
+| RBAC | Azure AI User | Grants access to developer, App Service identity, and project identity |
 | App Service Plan | B1 (Linux) | Always On + WebSocket support required |
-| App Service | .NET 8 on Linux | Hosts the voice agent app |
+| App Service | .NET 8 on Linux | Hosts the voice agent app with SystemAssigned managed identity |
+| Application Insights | — | Monitoring + live metrics |
+
+### Post-provision hooks (automatic)
+
+After infrastructure provisioning, `azd` runs `scripts/agent_manager.py create` which:
+1. Uploads `scripts/docs/product-catalog.md` to Foundry Files
+2. Creates a `ProductCatalog` vector store and indexes the file
+3. Creates the `VoiceLiveAgent` (Standard Agent) with all 8 function tool definitions + `file_search`
+4. Sets the agent version on the App Service app settings
 
 ### Deploy
 
-1. **Install azd** if you haven't already: [aka.ms/azd-install](https://aka.ms/azd-install)
+1. **Install prerequisites**: [azd](https://aka.ms/azd-install), [az CLI](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli), [Python 3.10+](https://www.python.org/), [uv](https://docs.astral.sh/uv/)
 
-2. **Initialize the environment** (creates `.azure/<env-name>/` directory):
+2. **Sign in**:
+
+   ```bash
+   azd auth login
+   az login
+   ```
+
+3. **Initialize the environment**:
 
    ```bash
    azd init -e dev
    ```
 
-3. **Configure your secrets** — copy the template and fill in your values:
+4. **Set required variables**:
 
    ```bash
-   cp .env.template .azure/dev/.env
+   azd env set ACS_CONNECTION_STRING "endpoint=https://<your-acs>.communication.azure.com/;accesskey=<key>"
+   azd env set TRANSFER_PHONE_NUMBER "+4922180102503"  # optional
    ```
 
-   Then edit `.azure/dev/.env`:
-
-   ```env
-   AZURE_LOCATION=westeurope
-   ACS_CONNECTION_STRING=endpoint=https://<your-acs>.communication.azure.com/;accesskey=<key>
-   AZURE_VOICE_LIVE_API_KEY=<your-azure-ai-foundry-api-key>
-   AZURE_VOICE_LIVE_ENDPOINT=https://<your-resource>.cognitiveservices.azure.com
-   VOICE_LIVE_MODEL=gpt-realtime-mini
-   TRANSFER_PHONE_NUMBER=+4922180102503
-   ```
-
-   > Alternatively, use `azd env set KEY value` for each variable instead of editing the file directly.
-
-4. **Provision and deploy**:
+5. **Provision and deploy**:
 
    ```bash
    azd up
    ```
 
    This will:
-   - Create the resource group, App Service Plan, and App Service
-   - Configure WebSockets, Always On, and HTTPS-only
-   - Set all app settings (connection strings, API keys, etc.)
+   - Create AI Services, Foundry Project, model deployment, and RBAC
+   - Create the App Service with managed identity
+   - Run `agent_manager.py create` to set up the Foundry Agent + vector store
+   - Set `FoundryAgentVersion` on the App Service
    - Build and deploy the .NET app
 
 5. **Update the ACS EventGrid webhook** to point to your new App Service URL:
@@ -357,7 +437,15 @@ The project includes `azd` infrastructure to deploy to **Azure App Service**. Th
 
 ### Subsequent deployments
 
-After the initial `azd up`, use `azd deploy` to push code changes without re-provisioning infrastructure.
+After the initial `azd up`, use `azd deploy` to push code changes without re-provisioning infrastructure. To update the Foundry Agent (e.g., after changing the system prompt or product catalog), re-run `azd provision` — the `postprovision` hook recreates the agent.
+
+### Teardown
+
+```bash
+azd down
+```
+
+This runs the `predown` hook which deletes the Foundry Agent, vector store, and uploaded file before tearing down infrastructure.
 
 > **Note**: Do **not** use a Consumption plan — the app requires long-lived WebSocket connections and Always On to avoid cold starts mid-call.
 

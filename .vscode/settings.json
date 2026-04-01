@@ -1,6 +1,7 @@
 {
     "chat.tools.terminal.autoApprove": {
         "dotnet new": true,
-        "dotnet add": true
+        "dotnet add": true,
+        "dotnet build": true
     }
 }

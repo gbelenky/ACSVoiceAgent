@@ -1,0 +1,9 @@
+[project]
+name = "voice-agent-scripts"
+version = "0.1.0"
+description = "Agent lifecycle management scripts for ACS Voice Agent"
+requires-python = ">=3.10"
+dependencies = [
+    "azure-ai-projects>=1.0.0b10",
+    "azure-identity>=1.19.0",
+]

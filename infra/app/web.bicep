@@ -5,10 +5,9 @@ param tags object = {}
 
 @secure()
 param acsConnectionString string
-@secure()
-param azureVoiceLiveApiKey string
-param azureVoiceLiveEndpoint string
-param voiceLiveModel string
+param voiceLiveEndpoint string
+param foundryAgentName string
+param foundryProjectName string
 param transferPhoneNumber string
 
 param logAnalyticsWorkspaceName string
@@ -174,6 +173,9 @@ resource web 'Microsoft.Web/sites@2023-12-01' = {
   name: name
   location: location
   tags: union(tags, { 'azd-service-name': 'web' })
+  identity: {
+    type: 'SystemAssigned'
+  }
   properties: {
     serverFarmId: appServicePlan.id
     httpsOnly: true
@@ -185,9 +187,9 @@ resource web 'Microsoft.Web/sites@2023-12-01' = {
       minTlsVersion: '1.2'
       appSettings: [
         { name: 'AcsConnectionString', value: acsConnectionString }
-        { name: 'AzureVoiceLiveApiKey', value: azureVoiceLiveApiKey }
-        { name: 'AzureVoiceLiveEndpoint', value: azureVoiceLiveEndpoint }
-        { name: 'VoiceLiveModel', value: voiceLiveModel }
+        { name: 'VoiceLiveEndpoint', value: voiceLiveEndpoint }
+        { name: 'FoundryAgentName', value: foundryAgentName }
+        { name: 'FoundryProjectName', value: foundryProjectName }
         { name: 'TransferPhoneNumber', value: transferPhoneNumber }
         { name: 'DevTunnelUri', value: 'https://${name}.azurewebsites.net' }
         { name: 'APPLICATIONINSIGHTS_CONNECTION_STRING', value: applicationInsights.properties.ConnectionString }
@@ -202,3 +204,4 @@ output uri string = 'https://${web.properties.defaultHostName}'
 output applicationInsightsConnectionString string = applicationInsights.properties.ConnectionString
 output applicationInsightsName string = applicationInsights.name
 output dashboardName string = dashboard.name
+output identityPrincipalId string = web.identity.principalId

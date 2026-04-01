@@ -11,17 +11,14 @@
     "acsConnectionString": {
       "value": "${ACS_CONNECTION_STRING}"
     },
-    "azureVoiceLiveApiKey": {
-      "value": "${AZURE_VOICE_LIVE_API_KEY}"
-    },
-    "azureVoiceLiveEndpoint": {
-      "value": "${AZURE_VOICE_LIVE_ENDPOINT}"
-    },
-    "voiceLiveModel": {
-      "value": "${VOICE_LIVE_MODEL}"
-    },
     "transferPhoneNumber": {
       "value": "${TRANSFER_PHONE_NUMBER}"
+    },
+    "principalId": {
+      "value": "${AZURE_PRINCIPAL_ID}"
+    },
+    "chatModelName": {
+      "value": "${CHAT_MODEL_NAME}"
     }
   }
 }

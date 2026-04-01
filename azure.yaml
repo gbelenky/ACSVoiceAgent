@@ -9,3 +9,151 @@ services:
     project: .
     host: appservice
     language: csharp
+
+# Hooks for agent lifecycle management via azd
+hooks:
+  # After provisioning infrastructure, create the Foundry Agent
+  postprovision:
+    windows:
+      shell: pwsh
+      run: |
+        Write-Host "=== Creating Foundry Voice Live Agent ===" -ForegroundColor Cyan
+        Write-Host ""
+
+        Push-Location scripts
+
+        # Install dependencies using uv
+        Write-Host "Installing dependencies with uv..." -ForegroundColor Yellow
+        uv sync
+
+        # Create the agent
+        $output = uv run python agent_manager.py create 2>&1 | Tee-Object -Variable outputLines
+
+        # Extract and save resource IDs to azd env
+        foreach ($line in $outputLines) {
+          if ($line -match "AGENT_ID:\s*(\S+)") {
+            $agentId = $Matches[1]
+            azd env set AGENT_ID $agentId
+            Write-Host "Saved AGENT_ID: $agentId" -ForegroundColor Green
+          }
+          if ($line -match "VECTORSTORE_ID:\s*(\S+)") {
+            $vsId = $Matches[1]
+            azd env set VECTORSTORE_ID $vsId
+            Write-Host "Saved VECTORSTORE_ID: $vsId" -ForegroundColor Green
+          }
+          if ($line -match "FILE_ID:\s*(\S+)") {
+            $fileId = $Matches[1]
+            azd env set FILE_ID $fileId
+            Write-Host "Saved FILE_ID: $fileId" -ForegroundColor Green
+          }
+        }
+
+        # Update App Service with agent version
+        $webAppName = azd env get-value SERVICE_WEB_NAME 2>$null
+        $resourceGroup = azd env get-value AZURE_RESOURCE_GROUP 2>$null
+        if ($agentId -and $webAppName -and $resourceGroup) {
+          $version = ($agentId -split ':')[-1]
+          Write-Host "Setting FoundryAgentVersion=$version on $webAppName..." -ForegroundColor Yellow
+          az webapp config appsettings set -g $resourceGroup -n $webAppName --settings "FoundryAgentVersion=$version" --output none
+        }
+
+        Pop-Location
+    posix:
+      shell: bash
+      run: |
+        echo "=== Creating Foundry Voice Live Agent ==="
+        echo ""
+
+        cd scripts
+
+        # Install dependencies using uv
+        echo "Installing dependencies with uv..."
+        uv sync
+
+        # Create the agent and capture output
+        output=$(uv run python agent_manager.py create 2>&1)
+        echo "$output"
+
+        # Extract and save resource IDs to azd env
+        agent_id=$(echo "$output" | grep -oP 'AGENT_ID:\s*\K\S+' | head -1)
+        vs_id=$(echo "$output" | grep -oP 'VECTORSTORE_ID:\s*\K\S+' | head -1)
+        file_id=$(echo "$output" | grep -oP 'FILE_ID:\s*\K\S+' | head -1)
+
+        if [ -n "$agent_id" ]; then
+          azd env set AGENT_ID "$agent_id"
+          echo "Saved AGENT_ID: $agent_id"
+        fi
+        if [ -n "$vs_id" ]; then
+          azd env set VECTORSTORE_ID "$vs_id"
+          echo "Saved VECTORSTORE_ID: $vs_id"
+        fi
+        if [ -n "$file_id" ]; then
+          azd env set FILE_ID "$file_id"
+          echo "Saved FILE_ID: $file_id"
+        fi
+
+        # Update App Service with agent version
+        web_app_name=$(azd env get-value SERVICE_WEB_NAME 2>/dev/null)
+        resource_group=$(azd env get-value AZURE_RESOURCE_GROUP 2>/dev/null)
+        if [ -n "$agent_id" ] && [ -n "$web_app_name" ] && [ -n "$resource_group" ]; then
+          version="${agent_id##*:}"
+          echo "Setting FoundryAgentVersion=$version on $web_app_name..."
+          az webapp config appsettings set -g "$resource_group" -n "$web_app_name" --settings "FoundryAgentVersion=$version" --output none
+        fi
+
+        cd ..
+
+  # Before tearing down infrastructure, delete the agent and resources
+  predown:
+    windows:
+      shell: pwsh
+      run: |
+        Write-Host "=== Deleting Foundry Voice Live Agent ===" -ForegroundColor Cyan
+        Write-Host ""
+
+        $agentId = $env:AGENT_ID
+
+        if ([string]::IsNullOrEmpty($agentId)) {
+          Write-Host "No AGENT_ID found in environment. Skipping agent deletion." -ForegroundColor Yellow
+          exit 0
+        }
+
+        Push-Location scripts
+
+        # Install dependencies using uv (if needed)
+        uv sync
+
+        # Delete the agent and resources
+        uv run python agent_manager.py delete
+
+        # Clear the IDs from env
+        azd env set AGENT_ID ""
+        azd env set VECTORSTORE_ID ""
+        azd env set FILE_ID ""
+
+        Pop-Location
+    posix:
+      shell: bash
+      run: |
+        echo "=== Deleting Foundry Voice Live Agent ==="
+        echo ""
+
+        if [ -z "$AGENT_ID" ]; then
+          echo "No AGENT_ID found in environment. Skipping agent deletion."
+          exit 0
+        fi
+
+        cd scripts
+
+        # Install dependencies using uv (if needed)
+        uv sync
+
+        # Delete the agent and resources
+        uv run python agent_manager.py delete
+
+        # Clear the IDs from env
+        azd env set AGENT_ID ""
+        azd env set VECTORSTORE_ID ""
+        azd env set FILE_ID ""
+
+        cd ..

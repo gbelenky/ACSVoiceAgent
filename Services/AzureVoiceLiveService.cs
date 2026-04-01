@@ -1,12 +1,17 @@
 using System.Text.Json;
-using Azure;
 using Azure.AI.VoiceLive;
 using Azure.Communication;
 using Azure.Communication.CallAutomation;
+using Azure.Identity;
 using ACSVoiceAgent.Models;
 
 namespace ACSVoiceAgent.Services;
 
+/// <summary>
+/// Voice Live service using Foundry Agent mode.
+/// Tools, instructions, and voice config are managed in the Foundry Agent — not in code.
+/// This service only handles the audio bridge and event loop.
+/// </summary>
 public class AzureVoiceLiveService
 {
     private readonly AcsMediaStreamingHandler _mediaStreaming;
@@ -39,170 +44,85 @@ public class AzureVoiceLiveService
 
     private async Task CreateSessionAsync()
     {
-        var apiKey = _configuration.GetValue<string>("AzureVoiceLiveApiKey");
-        ArgumentNullException.ThrowIfNullOrEmpty(apiKey);
-
-        var endpoint = _configuration.GetValue<string>("AzureVoiceLiveEndpoint");
+        var endpoint = _configuration.GetValue<string>("VoiceLiveEndpoint");
         ArgumentNullException.ThrowIfNullOrEmpty(endpoint);
 
-        var model = _configuration.GetValue<string>("VoiceLiveModel");
-        ArgumentNullException.ThrowIfNullOrEmpty(model);
+        var agentName = _configuration.GetValue<string>("FoundryAgentName");
+        ArgumentNullException.ThrowIfNullOrEmpty(agentName);
 
-        var promptPath = Path.Combine(AppContext.BaseDirectory, "Prompts", "system-prompt.txt");
-        _logger.LogInformation("Loading system prompt from: {PromptPath}", promptPath);
-        var systemPrompt = File.ReadAllText(promptPath);
-        _logger.LogInformation("System prompt loaded ({Length} chars)", systemPrompt.Length);
+        var projectName = _configuration.GetValue<string>("FoundryProjectName");
+        ArgumentNullException.ThrowIfNullOrEmpty(projectName);
 
-        var client = new VoiceLiveClient(new Uri(endpoint), new AzureKeyCredential(apiKey));
+        var agentVersion = _configuration.GetValue<string>("FoundryAgentVersion");
 
-        var sessionOptions = new VoiceLiveSessionOptions
+        // Build agent session config
+        var agentConfig = new AgentSessionConfig(agentName, projectName);
+        if (!string.IsNullOrEmpty(agentVersion))
         {
-            Model = model,
-            Instructions = systemPrompt,
-            Voice = new AzureStandardVoice("en-US-Ava:DragonHDLatestNeural"),
-            InputAudioFormat = InputAudioFormat.Pcm16,
-            OutputAudioFormat = OutputAudioFormat.Pcm16,
-            InputAudioNoiseReduction = new AudioNoiseReduction(AudioNoiseReductionType.FarField),
-            InputAudioEchoCancellation = new AudioEchoCancellation(),
-            TurnDetection = new ServerVadTurnDetection
-            {
-                Threshold = 0.5f,
-                PrefixPadding = TimeSpan.FromMilliseconds(300),
-                SilenceDuration = TimeSpan.FromMilliseconds(500)
-            }
-        };
+            agentConfig.AgentVersion = agentVersion;
+        }
 
-        sessionOptions.Modalities.Clear();
-        sessionOptions.Modalities.Add(InteractionModality.Text);
-        sessionOptions.Modalities.Add(InteractionModality.Audio);
+        // Agent mode requires Entra ID authentication (no API key)
+        var client = new VoiceLiveClient(new Uri(endpoint), new DefaultAzureCredential());
 
-        // Tool definitions (per official SDK pattern)
-        sessionOptions.Tools.Add(new VoiceLiveFunctionDefinition("customer_lookup")
-        {
-            Description = "Look up a customer's account information by phone number or customer ID.",
-            Parameters = BinaryData.FromString("""
-                {
-                    "type": "object",
-                    "properties": {
-                        "identifier": { "type": "string", "description": "Customer phone number or customer ID" }
-                    },
-                    "required": ["identifier"]
-                }
-                """)
-        });
+        _logger.LogInformation(
+            "Connecting to Voice Live at {Endpoint} with Foundry Agent '{AgentName}' in project '{ProjectName}'...",
+            endpoint, agentName, projectName);
 
-        sessionOptions.Tools.Add(new VoiceLiveFunctionDefinition("order_status")
-        {
-            Description = "Check the status of an order by order ID.",
-            Parameters = BinaryData.FromString("""
-                {
-                    "type": "object",
-                    "properties": {
-                        "order_id": { "type": "string", "description": "The order ID to look up" }
-                    },
-                    "required": ["order_id"]
-                }
-                """)
-        });
-
-        sessionOptions.Tools.Add(new VoiceLiveFunctionDefinition("check_appointment")
-        {
-            Description = "Check a customer's upcoming appointments.",
-            Parameters = BinaryData.FromString("""
-                {
-                    "type": "object",
-                    "properties": {
-                        "customer_id": { "type": "string", "description": "Customer ID" }
-                    },
-                    "required": ["customer_id"]
-                }
-                """)
-        });
-
-        sessionOptions.Tools.Add(new VoiceLiveFunctionDefinition("book_appointment")
-        {
-            Description = "Book a new appointment for a customer.",
-            Parameters = BinaryData.FromString("""
-                {
-                    "type": "object",
-                    "properties": {
-                        "customer_id": { "type": "string", "description": "Customer ID" },
-                        "date": { "type": "string", "description": "Appointment date in YYYY-MM-DD format" },
-                        "time": { "type": "string", "description": "Appointment time in HH:MM format" }
-                    },
-                    "required": ["customer_id", "date", "time"]
-                }
-                """)
-        });
-
-        sessionOptions.Tools.Add(new VoiceLiveFunctionDefinition("cancel_appointment")
-        {
-            Description = "Cancel an existing appointment by appointment ID.",
-            Parameters = BinaryData.FromString("""
-                {
-                    "type": "object",
-                    "properties": {
-                        "appointment_id": { "type": "string", "description": "The appointment ID to cancel" }
-                    },
-                    "required": ["appointment_id"]
-                }
-                """)
-        });
-
-        sessionOptions.Tools.Add(new VoiceLiveFunctionDefinition("search_knowledge_base")
-        {
-            Description = "Search the company knowledge base for answers to frequently asked questions.",
-            Parameters = BinaryData.FromString("""
-                {
-                    "type": "object",
-                    "properties": {
-                        "query": { "type": "string", "description": "The search query or question" }
-                    },
-                    "required": ["query"]
-                }
-                """)
-        });
-
-        sessionOptions.Tools.Add(new VoiceLiveFunctionDefinition("transfer_call")
-        {
-            Description = "Transfer the current call to a human agent. Use when the customer requests to speak to a human or when you cannot resolve their issue.",
-            Parameters = BinaryData.FromString("""
-                {
-                    "type": "object",
-                    "properties": {
-                        "reason": { "type": "string", "description": "Brief reason for the transfer" }
-                    }
-                }
-                """)
-        });
-
-        sessionOptions.Tools.Add(new VoiceLiveFunctionDefinition("end_call")
-        {
-            Description = "End the current phone call. You MUST call this tool IMMEDIATELY when the caller says goodbye or indicates they are done. Do not speak before calling this tool — call it first, then say goodbye after it returns.",
-            Parameters = BinaryData.FromString("""
-                {
-                    "type": "object",
-                    "properties": {
-                        "reason": { "type": "string", "description": "Brief reason for ending the call" }
-                    }
-                }
-                """)
-        });
-
-        _logger.LogInformation("Connecting to Voice Live at {Endpoint} with {ToolCount} tools...",
-            endpoint, sessionOptions.Tools.Count);
-
-        _session = await client.StartSessionAsync(sessionOptions, _cts!.Token);
+        // Connect using SessionTarget.FromAgent — the agent defines tools, instructions, and voice config
+        _session = await client.StartSessionAsync(
+            SessionTarget.FromAgent(agentConfig), _cts!.Token);
 
         if (_callSession != null)
         {
             _callSession.VoiceLiveSession = _session;
         }
 
-        _logger.LogInformation("Connected to Voice Live successfully");
+        // Configure session options (audio format for ACS compatibility)
+        var options = new VoiceLiveSessionOptions
+        {
+            InputAudioFormat = InputAudioFormat.Pcm16,
+            OutputAudioFormat = OutputAudioFormat.Pcm16,
+        };
+
+        await _session.ConfigureSessionAsync(options, _cts.Token);
+
+        _logger.LogInformation("Connected to Voice Live with Foundry Agent successfully");
 
         _ = Task.Run(() => ReceiveEventsAsync(_cts.Token));
-        await _session.StartResponseAsync(_cts.Token);
+
+        // Send a proactive greeting via raw command
+        await SendProactiveGreetingAsync(_cts.Token);
+    }
+
+    private async Task SendProactiveGreetingAsync(CancellationToken cancellationToken)
+    {
+        _logger.LogInformation("Sending proactive greeting request");
+        try
+        {
+            await _session!.SendCommandAsync(
+                BinaryData.FromObjectAsJson(new
+                {
+                    type = "conversation.item.create",
+                    item = new
+                    {
+                        type = "message",
+                        role = "system",
+                        content = new[]
+                        {
+                            new { type = "input_text", text = "Greet the caller and introduce yourself." }
+                        }
+                    }
+                }), cancellationToken);
+
+            await _session!.SendCommandAsync(
+                BinaryData.FromObjectAsJson(new { type = "response.create" }),
+                cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to send proactive greeting");
+        }
     }
 
     private async Task ReceiveEventsAsync(CancellationToken cancellationToken)
@@ -237,7 +157,7 @@ public class AzureVoiceLiveService
                 break;
 
             case SessionUpdateSessionUpdated:
-                _logger.LogInformation("Voice Live session updated");
+                _logger.LogInformation("Voice Live session updated and ready");
                 break;
 
             case SessionUpdateResponseAudioDelta audioDelta:
@@ -250,11 +170,6 @@ public class AzureVoiceLiveService
                 await _mediaStreaming.SendMessageAsync(OutStreamingData.GetStopAudioForOutbound());
                 break;
 
-            case SessionUpdateResponseFunctionCallArgumentsDone functionCall:
-                await HandleFunctionCallAsync(functionCall.Name, functionCall.CallId,
-                    functionCall.Arguments, cancellationToken);
-                break;
-
             case SessionUpdateResponseAudioTranscriptDone transcriptDone:
                 _logger.LogInformation("Agent transcript: {Transcript}", transcriptDone.Transcript);
                 _callSession?.Transcript.Add(new TranscriptEntry
@@ -262,6 +177,22 @@ public class AzureVoiceLiveService
                     Speaker = "Agent",
                     Text = transcriptDone.Transcript
                 });
+                break;
+
+            case SessionUpdateConversationItemInputAudioTranscriptionCompleted transcription:
+                _logger.LogInformation("User transcript: {Transcript}", transcription.Transcript);
+                _callSession?.Transcript.Add(new TranscriptEntry
+                {
+                    Speaker = "User",
+                    Text = transcription.Transcript
+                });
+                break;
+
+            case SessionUpdateResponseFunctionCallArgumentsDone functionCall:
+                // Function tools are dispatched client-side.
+                // file_search (product catalog) is handled server-side by the Foundry Agent.
+                await HandleFunctionCallAsync(functionCall.Name, functionCall.CallId,
+                    functionCall.Arguments, cancellationToken);
                 break;
 
             case SessionUpdateResponseAudioDone:
@@ -273,8 +204,16 @@ public class AzureVoiceLiveService
                 break;
 
             case SessionUpdateError errorEvent:
-                _logger.LogWarning("Voice Live error: {Code} - {Message}",
-                    errorEvent.Error?.Code, errorEvent.Error?.Message);
+                var errorMsg = errorEvent.Error?.Message;
+                if (errorMsg?.Contains("Cancellation failed: no active response") == true)
+                {
+                    // Benign cancellation error during barge-in
+                }
+                else
+                {
+                    _logger.LogWarning("Voice Live error: {Code} - {Message}",
+                        errorEvent.Error?.Code, errorMsg);
+                }
                 break;
 
             default:
@@ -358,7 +297,7 @@ public class AzureVoiceLiveService
         var callConnectionId = _callSession?.CallConnectionId;
         if (string.IsNullOrEmpty(callConnectionId))
         {
-            _logger.LogWarning("EndCallAsync: No active call connection ID — session may not be bound");
+            _logger.LogWarning("EndCallAsync: No active call connection ID");
             return Task.FromResult(JsonSerializer.Serialize(new { error = "No active call connection" }));
         }
 
@@ -382,7 +321,6 @@ public class AzureVoiceLiveService
         }
 
         _logger.LogWarning("Waiting 6s before hanging up call {CallConnectionId}...", callConnectionId);
-        // Allow enough time for the goodbye audio to be generated and played to the caller
         await Task.Delay(6000);
 
         _logger.LogWarning("Hanging up call {CallConnectionId}", callConnectionId);
@@ -391,10 +329,6 @@ public class AzureVoiceLiveService
             var callConnection = _callClient.GetCallConnection(callConnectionId);
             await callConnection.HangUpAsync(true);
             _logger.LogWarning("HangUpAsync completed successfully for {CallConnectionId}", callConnectionId);
-        }
-        catch (Azure.RequestFailedException ex) when (ex.Status == 404)
-        {
-            _logger.LogWarning("Call {CallConnectionId} already disconnected (404)", callConnectionId);
         }
         catch (Exception ex)
         {
