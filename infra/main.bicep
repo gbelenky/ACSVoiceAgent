@@ -6,14 +6,17 @@ targetScope = 'subscription'
 param environmentName string
 
 @minLength(1)
-@description('Primary location for all resources')
-@allowed(['eastus2', 'swedencentral', 'australiaeast', 'northcentralus'])
+@description('Primary location for App Service and monitoring resources')
 @metadata({
   azd: {
     type: 'location'
   }
 })
 param location string
+
+@description('Location for Azure AI Services (must support gpt-4.1-mini). Defaults to swedencentral.')
+@allowed(['eastus2', 'swedencentral', 'australiaeast', 'northcentralus'])
+param aiLocation string = 'swedencentral'
 
 @description('ACS connection string (from existing ACS resource)')
 @secure()
@@ -41,12 +44,12 @@ resource rg 'Microsoft.Resources/resourceGroups@2022-09-01' = {
   tags: tags
 }
 
-// Azure AI Services with Foundry Project
+// Azure AI Services with Foundry Project (in AI-supported region)
 module aiServices './app/ai/cognitive-services.bicep' = {
   name: 'aiServices'
   scope: rg
   params: {
-    location: location
+    location: aiLocation
     tags: tags
     chatModelName: chatModelName
     aiServicesName: 'ai-${resourceToken}'
