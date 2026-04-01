@@ -10,9 +10,9 @@ public static class AgentFunctions
 {
     private static readonly Dictionary<string, object> Customers = new()
     {
-        ["12345"] = new { name = "Genady Belenky", id = "12345", phone = "+14255551234", email = "genady@example.com", tier = "Gold", balance = 150.00 },
+        ["12345"] = new { name = "Sarah Connor", id = "12345", phone = "+14255551234", email = "sarah@example.com", tier = "Gold", balance = 150.00 },
         ["67890"] = new { name = "John Smith", id = "67890", phone = "+14255555678", email = "john@example.com", tier = "Silver", balance = 45.50 },
-        ["+14255551234"] = new { name = "Genady Belenky", id = "12345", phone = "+14255551234", email = "alice@example.com", tier = "Gold", balance = 150.00 },
+        ["+14255551234"] = new { name = "Sarah Connor", id = "12345", phone = "+14255551234", email = "sarah@example.com", tier = "Gold", balance = 150.00 },
         ["+14255555678"] = new { name = "John Smith", id = "67890", phone = "+14255555678", email = "john@example.com", tier = "Silver", balance = 45.50 }
     };
 

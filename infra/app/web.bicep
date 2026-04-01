@@ -51,6 +51,125 @@ resource appServicePlan 'Microsoft.Web/serverfarms@2023-12-01' = {
   }
 }
 
+resource dashboard 'Microsoft.Portal/dashboards@2020-09-01-preview' = {
+  name: '${name}-dashboard'
+  location: location
+  tags: union(tags, { 'hidden-title': 'ACS Voice Agent Dashboard' })
+  properties: {
+    lenses: [
+      {
+        order: 0
+        parts: [
+          {
+            position: { x: 0, y: 0, rowSpan: 4, colSpan: 6 }
+            metadata: {
+              type: 'Extension/HubsExtension/PartType/MonitorChartPart'
+              inputs: [
+                {
+                  name: 'options'
+                  value: {
+                    chart: {
+                      title: 'Server Requests'
+                      metrics: [
+                        {
+                          resourceMetadata: { id: applicationInsights.id }
+                          name: 'requests/count'
+                          aggregationType: 7
+                          metricVisualization: { displayName: 'Server requests' }
+                        }
+                      ]
+                      timespan: { relative: { duration: 86400000 } }
+                      visualization: { chartType: 2 }
+                    }
+                  }
+                }
+              ]
+            }
+          }
+          {
+            position: { x: 6, y: 0, rowSpan: 4, colSpan: 6 }
+            metadata: {
+              type: 'Extension/HubsExtension/PartType/MonitorChartPart'
+              inputs: [
+                {
+                  name: 'options'
+                  value: {
+                    chart: {
+                      title: 'Server Response Time'
+                      metrics: [
+                        {
+                          resourceMetadata: { id: applicationInsights.id }
+                          name: 'requests/duration'
+                          aggregationType: 4
+                          metricVisualization: { displayName: 'Server response time' }
+                        }
+                      ]
+                      timespan: { relative: { duration: 86400000 } }
+                      visualization: { chartType: 2 }
+                    }
+                  }
+                }
+              ]
+            }
+          }
+          {
+            position: { x: 0, y: 4, rowSpan: 4, colSpan: 6 }
+            metadata: {
+              type: 'Extension/HubsExtension/PartType/MonitorChartPart'
+              inputs: [
+                {
+                  name: 'options'
+                  value: {
+                    chart: {
+                      title: 'Failed Requests'
+                      metrics: [
+                        {
+                          resourceMetadata: { id: applicationInsights.id }
+                          name: 'requests/failed'
+                          aggregationType: 7
+                          metricVisualization: { displayName: 'Failed requests' }
+                        }
+                      ]
+                      timespan: { relative: { duration: 86400000 } }
+                      visualization: { chartType: 2 }
+                    }
+                  }
+                }
+              ]
+            }
+          }
+          {
+            position: { x: 6, y: 4, rowSpan: 4, colSpan: 6 }
+            metadata: {
+              type: 'Extension/HubsExtension/PartType/MonitorChartPart'
+              inputs: [
+                {
+                  name: 'options'
+                  value: {
+                    chart: {
+                      title: 'Server Exceptions'
+                      metrics: [
+                        {
+                          resourceMetadata: { id: applicationInsights.id }
+                          name: 'exceptions/count'
+                          aggregationType: 7
+                          metricVisualization: { displayName: 'Exceptions' }
+                        }
+                      ]
+                      timespan: { relative: { duration: 86400000 } }
+                      visualization: { chartType: 2 }
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    ]
+  }
+}
+
 resource web 'Microsoft.Web/sites@2023-12-01' = {
   name: name
   location: location
@@ -82,3 +201,4 @@ output name string = web.name
 output uri string = 'https://${web.properties.defaultHostName}'
 output applicationInsightsConnectionString string = applicationInsights.properties.ConnectionString
 output applicationInsightsName string = applicationInsights.name
+output dashboardName string = dashboard.name

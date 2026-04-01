@@ -16,7 +16,6 @@ public class AzureVoiceLiveService
     private VoiceLiveSession? _session;
     private CallSession? _callSession;
     private CancellationTokenSource? _cts;
-    private volatile bool _endCallRequested;
 
     public AzureVoiceLiveService(
         AcsMediaStreamingHandler mediaStreaming,
@@ -271,11 +270,6 @@ public class AzureVoiceLiveService
 
             case SessionUpdateResponseDone:
                 _logger.LogDebug("Response completed");
-                if (_endCallRequested)
-                {
-                    _logger.LogWarning("End-call response completed — hanging up");
-                    _ = HangUpAfterDelayAsync();
-                }
                 break;
 
             case SessionUpdateError errorEvent:
@@ -327,10 +321,10 @@ public class AzureVoiceLiveService
             result = JsonSerializer.Serialize(new { error = $"Function execution failed: {ex.Message}" });
         }
 
-        // For end_call: send result back so the model can speak a goodbye, then hang up on ResponseDone
+        // For end_call: schedule hangup with enough delay for the goodbye audio to play out
         if (functionName == "end_call")
         {
-            _endCallRequested = true;
+            _ = HangUpAfterDelayAsync();
         }
 
         await _session!.AddItemAsync(new FunctionCallOutputItem(callId, result), cancellationToken);
@@ -387,9 +381,9 @@ public class AzureVoiceLiveService
             return;
         }
 
-        _logger.LogWarning("Waiting 2s before hanging up call {CallConnectionId}...", callConnectionId);
-        // Buffer for ACS to finish playing audio to the caller
-        await Task.Delay(2000);
+        _logger.LogWarning("Waiting 6s before hanging up call {CallConnectionId}...", callConnectionId);
+        // Allow enough time for the goodbye audio to be generated and played to the caller
+        await Task.Delay(6000);
 
         _logger.LogWarning("Hanging up call {CallConnectionId}", callConnectionId);
         try

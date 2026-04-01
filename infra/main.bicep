@@ -60,3 +60,4 @@ output SERVICE_WEB_NAME string = web.outputs.name
 output SERVICE_WEB_URI string = web.outputs.uri
 output APPLICATIONINSIGHTS_CONNECTION_STRING string = web.outputs.applicationInsightsConnectionString
 output APPLICATIONINSIGHTS_NAME string = web.outputs.applicationInsightsName
+output AZURE_PORTAL_DASHBOARD_NAME string = web.outputs.dashboardName
