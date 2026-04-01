@@ -11,16 +11,16 @@ public static class AgentFunctions
     private static readonly Dictionary<string, object> Customers = new()
     {
         ["12345"] = new { name = "Genady Belenky", id = "12345", phone = "+14255551234", email = "genady@example.com", tier = "Gold", balance = 150.00 },
-        ["67890"] = new { name = "Ravi Varma Addala", id = "67890", phone = "+14255555678", email = "bob@example.com", tier = "Silver", balance = 45.50 },
+        ["67890"] = new { name = "John Smith", id = "67890", phone = "+14255555678", email = "john@example.com", tier = "Silver", balance = 45.50 },
         ["+14255551234"] = new { name = "Genady Belenky", id = "12345", phone = "+14255551234", email = "alice@example.com", tier = "Gold", balance = 150.00 },
-        ["+14255555678"] = new { name = "Ravi Varma Addala", id = "67890", phone = "+14255555678", email = "bob@example.com", tier = "Silver", balance = 45.50 }
+        ["+14255555678"] = new { name = "John Smith", id = "67890", phone = "+14255555678", email = "john@example.com", tier = "Silver", balance = 45.50 }
     };
 
     private static readonly Dictionary<string, object> Orders = new()
     {
-        ["ORD-001"] = new { orderId = "ORD-001", status = "Shipped", estimatedDelivery = "2026-03-27", items = "Wireless Headphones x1", trackingNumber = "1Z999AA10123456784" },
-        ["ORD-002"] = new { orderId = "ORD-002", status = "Processing", estimatedDelivery = "2026-03-30", items = "USB-C Hub x2", trackingNumber = "" },
-        ["ORD-003"] = new { orderId = "ORD-003", status = "Delivered", estimatedDelivery = "2026-03-20", items = "Laptop Stand x1", trackingNumber = "1Z999AA10987654321" }
+        ["001"] = new { orderId = "001", status = "Shipped", estimatedDelivery = "2026-03-27", items = "Wireless Headphones x1", trackingNumber = "1Z999AA10123456784" },
+        ["002"] = new { orderId = "002", status = "Processing", estimatedDelivery = "2026-03-30", items = "USB-C Hub x2", trackingNumber = "" },
+        ["003"] = new { orderId = "003", status = "Delivered", estimatedDelivery = "2026-03-20", items = "Laptop Stand x1", trackingNumber = "1Z999AA10987654321" }
     };
 
     private static readonly Dictionary<string, object> Appointments = new()
