@@ -84,10 +84,11 @@ Server-side noise reduction is configured via `AudioNoiseReductionType`. Availab
 - [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0)
 - [Azure Developer CLI (azd)](https://aka.ms/azd-install) — provisions infrastructure + creates the Foundry Agent
 - [Azure CLI (az)](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli) — used by azd hooks
+  - **communication** extension: `az extension add --name communication --yes`
+- [Azure Dev Tunnels CLI](https://learn.microsoft.com/en-us/azure/developer/dev-tunnels/get-started) — for local development (or [ngrok](https://ngrok.com/))
 - [Python 3.10+](https://www.python.org/) and [uv](https://docs.astral.sh/uv/) — for the agent manager script
 - An **Azure Communication Services** resource with a phone number configured for incoming calls
 - An **Azure subscription** in a [supported region](https://learn.microsoft.com/en-us/azure/ai-services/openai/concepts/models#model-summary-table-and-region-availability) for `gpt-4.1-mini` (`eastus2`, `swedencentral`, `australiaeast`, or `northcentralus`)
-- A tunneling tool for local development ([Azure Dev Tunnels](https://learn.microsoft.com/en-us/azure/developer/dev-tunnels/overview) or [ngrok](https://ngrok.com/))
 
 > **Note**: Unlike the `main` branch, this branch uses **Entra ID authentication** (via `DefaultAzureCredential`) — no API keys needed. The `azd up` flow provisions the AI Services resource, Foundry Project, model deployment, and RBAC automatically.
 
@@ -114,18 +115,15 @@ Copy the tunnel URL (e.g. `https://abc123.devtunnels.ms`).
 
 ### 3. Configure settings
 
-For local development, fill in your values in `appsettings.Development.json` (this file is loaded automatically when running in the `Development` environment and should **not** be committed to source control):
+Copy the template and fill in your values:
 
-```json
-{
-  "DevTunnelUri": "https://<your-tunnel-url>",
-  "AcsConnectionString": "endpoint=https://<your-acs>.communication.azure.com/;accesskey=<key>",
-  "VoiceLiveEndpoint": "https://<your-ai-services>.cognitiveservices.azure.com",
-  "FoundryAgentName": "VoiceLiveAgent",
-  "FoundryProjectName": "voiceAgentProject",
-  "FoundryAgentVersion": "<version-from-azd-up>"
-}
+```bash
+cp appsettings.Development.template.json appsettings.Development.json
 ```
+
+This file is loaded automatically when running in the `Development` environment and is gitignored (never committed).
+
+> **Tip**: If you run `azd provision` or `azd up`, the postprovision hook automatically generates `appsettings.Development.json` with values from the provisioned resources. You only need to fill in `DevTunnelUri` and `FoundryAgentVersion` afterward.
 
 | Setting | Description |
 |---|---|
@@ -145,16 +143,20 @@ For local development, fill in your values in `appsettings.Development.json` (th
 
 The agent's personality and behavior are defined in `Prompts/system-prompt.txt`. Edit this file directly — no JSON escaping needed, changes take effect on the next `dotnet run`.
 
-### 5. Register the EventGrid webhook
+### 5. Register the EventGrid webhook (for local development)
 
-In the Azure Portal, configure your ACS phone number to send **IncomingCall** events to your dev tunnel:
+For local development with a dev tunnel, configure your ACS resource to send **IncomingCall** events to your tunnel URL:
 
-1. Go to your **ACS resource** → **Events**
-2. Create an **Event Subscription**:
-   - **Event Types**: Select `Incoming Call`
+1. Go to **Azure Portal** → your **ACS resource** → **Events** (left menu)
+2. Click **+ Event Subscription**
+3. Fill in:
+   - **Name**: `incoming-call-local`
+   - **Event Types**: Select only `Incoming Call`
    - **Endpoint Type**: Web Hook
    - **Endpoint URL**: `https://<your-tunnel-url>/api/incomingCall`
-3. Save — EventGrid will send a validation request, and the app will respond automatically
+4. Click **Create** — EventGrid will send a validation handshake, the app responds automatically
+
+> **Note**: When you deploy to Azure with `azd up` or `azd deploy`, the EventGrid subscription is updated automatically by the postdeploy hook, pointing to this environment's App Service URL. Running `azd deploy` from the other branch's folder switches the subscription to that environment.
 
 ### 6. Run the app
 
@@ -188,7 +190,8 @@ info: Microsoft.Hosting.Lifetime[14]
 ├── Helper.cs                           # EventGrid JSON parsing helpers
 ├── ACSVoiceAgent.csproj                # .NET 8 project file
 ├── appsettings.json                    # Configuration (defaults)
-├── appsettings.Development.json        # Local development configuration (add your secrets here)
+├── appsettings.Development.template.json # Template for local dev config (copy and fill in)
+├── appsettings.Development.json        # Local development configuration (gitignored)
 ├── azure.yaml                          # azd project file with agent lifecycle hooks
 ├── Models/
 │   └── CallSession.cs                  # Call session model (state per active call)
@@ -368,7 +371,7 @@ The project includes full `azd` infrastructure to deploy to **Azure App Service*
 | Resource Group | — | Container for all resources |
 | AI Services | S0 | Hosts the Voice Live API + model deployments |
 | Foundry Project | — | `voiceAgentProject` — manages the agent and vector store |
-| Model Deployment | `gpt-4.1-mini` GlobalStandard | Realtime model for voice conversations |
+| Model Deployment | `gpt-4.1-mini` GlobalStandard | Chat model used by the Foundry Agent for tool dispatch and reasoning (Voice Live uses `gpt-realtime-mini` internally) |
 | RBAC | Azure AI User | Grants access to developer, App Service identity, and project identity |
 | App Service Plan | B1 (Linux) | Always On + WebSocket support required |
 | App Service | .NET 8 on Linux | Hosts the voice agent app with SystemAssigned managed identity |
@@ -376,7 +379,7 @@ The project includes full `azd` infrastructure to deploy to **Azure App Service*
 
 ### Post-provision hooks (automatic)
 
-After infrastructure provisioning, `azd` runs `scripts/agent_manager.py create` which:
+After infrastructure provisioning, `azd` runs `scripts/AgentManager` which:
 1. Uploads `scripts/docs/product-catalog.md` to Foundry Files
 2. Creates a `ProductCatalog` vector store and indexes the file
 3. Creates the `VoiceLiveAgent` (Standard Agent) with all 8 function tool definitions + `file_search`
@@ -402,8 +405,20 @@ After infrastructure provisioning, `azd` runs `scripts/agent_manager.py create` 
 4. **Set required variables**:
 
    ```bash
+   # ACS connection string (Azure Portal → ACS resource → Keys)
    azd env set ACS_CONNECTION_STRING "endpoint=https://<your-acs>.communication.azure.com/;accesskey=<key>"
-   azd env set TRANSFER_PHONE_NUMBER "+4922180102503"  # optional
+   
+   # ACS resource name and resource group (for automated EventGrid subscription)
+   azd env set ACS_RESOURCE_NAME "<your-acs-resource-name>"
+   azd env set ACS_RESOURCE_GROUP "<resource-group-containing-acs>"
+   
+   # Your user object ID — grants Azure AI User role for local development
+   azd env set AZURE_PRINCIPAL_ID "$(az ad signed-in-user show --query id -o tsv)"
+   
+   # Optional (defaults shown)
+   azd env set TRANSFER_PHONE_NUMBER "+4922180102503"
+   azd env set CHAT_MODEL_NAME "gpt-4.1-mini"
+   azd env set AI_LOCATION "swedencentral"
    ```
 
 5. **Provision and deploy**:
@@ -415,29 +430,17 @@ After infrastructure provisioning, `azd` runs `scripts/agent_manager.py create` 
    This will:
    - Create AI Services, Foundry Project, model deployment, and RBAC
    - Create the App Service with managed identity
-   - Run `agent_manager.py create` to set up the Foundry Agent + vector store
+   - Generate `appsettings.Development.json` for local development
+   - Create/update EventGrid subscription on your ACS resource (postdeploy — runs on every deploy)
+   - Run `AgentManager` to set up the Foundry Agent + vector store
    - Set `FoundryAgentVersion` on the App Service
    - Build and deploy the .NET app
 
-5. **Update the ACS EventGrid webhook** to point to your new App Service URL:
-
-   The `azd up` output prints `SERVICE_WEB_URI` (e.g. `https://app-xxxx.azurewebsites.net`). Use this to update your IncomingCall subscription:
-
-   1. Go to the **Azure Portal** → your **ACS resource** → **Events**
-   2. Click on your existing **Event Subscription** (or create one if this is a new ACS resource)
-   3. Under **Endpoint**, change the URL to:
-      ```
-      https://<app-name>.azurewebsites.net/api/incomingCall
-      ```
-      Replace `<app-name>` with the actual App Service name from the `azd up` output.
-   4. Click **Save**
-   5. EventGrid will send a validation handshake — the deployed app handles this automatically
-
-   > If you were previously using a dev tunnel URL, this replaces it. You can switch back to the dev tunnel for local development by updating the endpoint again.
+   > The EventGrid subscription is updated automatically by the postdeploy hook on every `azd deploy` and `azd up`. No manual portal steps needed.
 
 ### Subsequent deployments
 
-After the initial `azd up`, use `azd deploy` to push code changes without re-provisioning infrastructure. To update the Foundry Agent (e.g., after changing the system prompt or product catalog), re-run `azd provision` — the `postprovision` hook recreates the agent.
+After the initial `azd up`, use `azd deploy` to push code changes without re-provisioning infrastructure — the postdeploy hook automatically updates the EventGrid subscription to point to this environment. To update the Foundry Agent (e.g., after changing the system prompt or product catalog), re-run `azd provision` — the `postprovision` hook recreates the agent.
 
 ### Teardown
 
@@ -513,3 +516,22 @@ The [Azure AI Foundry Evaluations SDK](https://learn.microsoft.com/en-us/azure/a
 5. **Custom evaluators** are most impactful for call centers: check intent detection accuracy, tool selection correctness, system prompt compliance, and resolution rate
 
 > **Note**: SSML is not applicable in this architecture. The Voice Live API manages the text→TTS pipeline internally — there is no access to intermediate text for SSML wrapping. The DragonHD voice handles prosody (intonation, pacing, emphasis) automatically from context. Voice behavior is instead controlled through the **system prompt** (e.g., "speak slowly when reading order numbers", "use a warm tone for complaints").
+
+## Working with the `main` Branch
+
+The [`main`](https://github.com/gbelenky/ACSVoiceAgent/tree/main) branch uses direct Voice Live SDK integration (API key auth, inline tool definitions) instead of a Foundry Agent. The recommended approach is to work in a **separate folder** to avoid build artifact and config conflicts:
+
+```bash
+# Clone into a separate folder
+git clone -b main https://github.com/gbelenky/ACSVoiceAgent.git ACSVoiceAgent-main
+cd ACSVoiceAgent-main
+
+# Create local config from the template
+cp appsettings.Development.template.json appsettings.Development.json
+# Fill in your values (different settings than this branch — see the template)
+
+dotnet restore
+dotnet build
+```
+
+> **Important**: Do not copy `appsettings.Development.json` between folders — the settings are incompatible (different keys, different auth model). Always start from each branch's own template.

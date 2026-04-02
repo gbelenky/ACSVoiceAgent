@@ -22,6 +22,12 @@
     },
     "chatModelName": {
       "value": "${CHAT_MODEL_NAME}"
+    },
+    "acsResourceName": {
+      "value": "${ACS_RESOURCE_NAME}"
+    },
+    "acsResourceGroup": {
+      "value": "${ACS_RESOURCE_GROUP}"
     }
   }
 }

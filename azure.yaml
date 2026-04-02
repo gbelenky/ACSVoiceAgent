@@ -17,6 +17,29 @@ hooks:
     windows:
       shell: pwsh
       run: |
+        # --- Generate appsettings.Development.json ---
+        Write-Host "Generating appsettings.Development.json from provisioned resources..." -ForegroundColor Cyan
+        $settings = @{
+          Logging = @{
+            LogLevel = @{ Default = "Information"; "Microsoft.AspNetCore" = "Warning" }
+            ApplicationInsights = @{ LogLevel = @{ Default = "Information" } }
+          }
+          AllowedHosts = "*"
+          DevTunnelUri = ""
+          AcsConnectionString = $env:ACS_CONNECTION_STRING
+          VoiceLiveEndpoint = $env:PROJECT_ENDPOINT
+          FoundryAgentName = $env:FOUNDRY_AGENT_NAME
+          FoundryProjectName = $env:PROJECT_NAME
+          FoundryAgentVersion = ""
+          TransferPhoneNumber = $env:TRANSFER_PHONE_NUMBER
+        }
+        $settings | ConvertTo-Json -Depth 3 | Set-Content -Path "appsettings.Development.json" -Encoding UTF8
+        Write-Host "appsettings.Development.json created successfully"
+        Write-Host "NOTE: Set DevTunnelUri to your dev tunnel URL before running locally"
+        Write-Host "NOTE: FoundryAgentVersion will be set after agent creation below"
+        Write-Host ""
+
+        # --- Create Foundry Agent ---
         Write-Host "=== Creating Foundry Voice Live Agent ===" -ForegroundColor Cyan
         Write-Host ""
 
@@ -48,11 +71,59 @@ hooks:
         if ($agentId -and $webAppName -and $resourceGroup) {
           $version = ($agentId -split ':')[-1]
           Write-Host "Setting FoundryAgentVersion=$version on $webAppName..." -ForegroundColor Yellow
-          az webapp config appsettings set -g $resourceGroup -n $webAppName --settings "FoundryAgentVersion=$version" --output none
+          # Retry up to 6 times (30s total) waiting for App Service to be available in ARM
+          $retries = 0
+          $maxRetries = 6
+          $success = $false
+          while (-not $success -and $retries -lt $maxRetries) {
+            $result = az webapp config appsettings set -g $resourceGroup -n $webAppName --settings "FoundryAgentVersion=$version" --output none 2>&1
+            if ($LASTEXITCODE -eq 0) {
+              $success = $true
+            } else {
+              $retries++
+              Write-Host "App Service not ready yet, retrying in 5s ($retries/$maxRetries)..." -ForegroundColor Yellow
+              Start-Sleep -Seconds 5
+            }
+          }
+          if (-not $success) {
+            Write-Host "WARNING: Could not set FoundryAgentVersion on App Service. Set it manually:" -ForegroundColor Red
+            Write-Host "  az webapp config appsettings set -g $resourceGroup -n $webAppName --settings FoundryAgentVersion=$version" -ForegroundColor Red
+          }
         }
     posix:
       shell: bash
       run: |
+        # --- Generate appsettings.Development.json ---
+        echo "Generating appsettings.Development.json from provisioned resources..."
+        cat > appsettings.Development.json << EOF
+        {
+          "Logging": {
+            "LogLevel": {
+              "Default": "Information",
+              "Microsoft.AspNetCore": "Warning"
+            },
+            "ApplicationInsights": {
+              "LogLevel": {
+                "Default": "Information"
+              }
+            }
+          },
+          "AllowedHosts": "*",
+          "DevTunnelUri": "",
+          "AcsConnectionString": "$ACS_CONNECTION_STRING",
+          "VoiceLiveEndpoint": "$PROJECT_ENDPOINT",
+          "FoundryAgentName": "$FOUNDRY_AGENT_NAME",
+          "FoundryProjectName": "$PROJECT_NAME",
+          "FoundryAgentVersion": "",
+          "TransferPhoneNumber": "$TRANSFER_PHONE_NUMBER"
+        }
+        EOF
+        echo "appsettings.Development.json created successfully"
+        echo "NOTE: Set DevTunnelUri to your dev tunnel URL before running locally"
+        echo "NOTE: FoundryAgentVersion will be set after agent creation below"
+        echo ""
+
+        # --- Create Foundry Agent ---
         echo "=== Creating Foundry Voice Live Agent ==="
         echo ""
 
@@ -84,8 +155,64 @@ hooks:
         if [ -n "$agent_id" ] && [ -n "$web_app_name" ] && [ -n "$resource_group" ]; then
           version="${agent_id##*:}"
           echo "Setting FoundryAgentVersion=$version on $web_app_name..."
-          az webapp config appsettings set -g "$resource_group" -n "$web_app_name" --settings "FoundryAgentVersion=$version" --output none
+          # Retry up to 6 times (30s total) waiting for App Service to be available in ARM
+          retries=0
+          max_retries=6
+          success=false
+          while [ "$success" = false ] && [ $retries -lt $max_retries ]; do
+            if az webapp config appsettings set -g "$resource_group" -n "$web_app_name" --settings "FoundryAgentVersion=$version" --output none 2>/dev/null; then
+              success=true
+            else
+              retries=$((retries + 1))
+              echo "App Service not ready yet, retrying in 5s ($retries/$max_retries)..."
+              sleep 5
+            fi
+          done
+          if [ "$success" = false ]; then
+            echo "WARNING: Could not set FoundryAgentVersion on App Service. Set it manually:"
+            echo "  az webapp config appsettings set -g $resource_group -n $web_app_name --settings FoundryAgentVersion=$version"
+          fi
         fi
+
+  # Runs after every 'azd deploy' and 'azd up' — ensures EventGrid always points to this environment
+  postdeploy:
+    windows:
+      shell: pwsh
+      run: |
+        Write-Host "Configuring EventGrid subscription for IncomingCall events..." -ForegroundColor Cyan
+        $acsResourceId = az communication show --name $env:ACS_RESOURCE_NAME --resource-group $env:ACS_RESOURCE_GROUP --query "id" -o tsv
+        $webhookUrl = "$env:SERVICE_WEB_URI/api/incomingCall"
+        $subName = "incoming-call"
+        $body = @{
+          properties = @{
+            destination = @{
+              endpointType = "WebHook"
+              properties = @{ endpointUrl = $webhookUrl }
+            }
+            filter = @{
+              includedEventTypes = @("Microsoft.Communication.IncomingCall")
+            }
+          }
+        } | ConvertTo-Json -Depth 5 -Compress
+        $tmpFile = [System.IO.Path]::GetTempFileName()
+        $body | Out-File -FilePath $tmpFile -Encoding utf8 -NoNewline
+        az rest --method PUT --uri "https://management.azure.com${acsResourceId}/providers/Microsoft.EventGrid/eventSubscriptions/${subName}?api-version=2024-06-01-preview" --body "@$tmpFile" --headers "Content-Type=application/json"
+        Remove-Item $tmpFile -ErrorAction SilentlyContinue
+        Write-Host "EventGrid subscription '$subName' configured to $webhookUrl"
+    posix:
+      shell: bash
+      run: |
+        echo "Configuring EventGrid subscription for IncomingCall events..."
+        ACS_RESOURCE_ID=$(az communication show --name "$ACS_RESOURCE_NAME" --resource-group "$ACS_RESOURCE_GROUP" --query "id" -o tsv)
+        WEBHOOK_URL="$SERVICE_WEB_URI/api/incomingCall"
+        SUB_NAME="incoming-call"
+        TMPFILE=$(mktemp)
+        cat > "$TMPFILE" << EOJSON
+        {"properties":{"destination":{"endpointType":"WebHook","properties":{"endpointUrl":"${WEBHOOK_URL}"}},"filter":{"includedEventTypes":["Microsoft.Communication.IncomingCall"]}}}
+        EOJSON
+        az rest --method PUT --uri "https://management.azure.com${ACS_RESOURCE_ID}/providers/Microsoft.EventGrid/eventSubscriptions/${SUB_NAME}?api-version=2024-06-01-preview" --body @"$TMPFILE" --headers "Content-Type=application/json"
+        rm -f "$TMPFILE"
+        echo "EventGrid subscription '$SUB_NAME' configured to $WEBHOOK_URL"
 
   # Before tearing down infrastructure, delete the agent and resources
   predown:

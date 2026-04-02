@@ -31,6 +31,12 @@ param principalId string = ''
 @allowed(['gpt-4o-mini', 'gpt-4.1-mini', 'gpt-4o'])
 param chatModelName string = 'gpt-4.1-mini'
 
+@description('Name of the existing ACS resource (for EventGrid subscription in postprovision hook)')
+param acsResourceName string = ''
+
+@description('Resource group of the existing ACS resource')
+param acsResourceGroup string = ''
+
 // Hardcoded agent name — must match what agent_manager.py creates
 var foundryAgentName = 'VoiceLiveAgent'
 
@@ -113,3 +119,5 @@ output PROJECT_NAME string = aiServices.outputs.aiFoundryProjectName
 output AI_SERVICES_NAME string = aiServices.outputs.aiServicesName
 output CHAT_MODEL_DEPLOYMENT string = aiServices.outputs.chatDeploymentName
 output FOUNDRY_AGENT_NAME string = foundryAgentName
+output ACS_RESOURCE_NAME string = acsResourceName
+output ACS_RESOURCE_GROUP string = acsResourceGroup
