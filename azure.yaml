@@ -20,14 +20,8 @@ hooks:
         Write-Host "=== Creating Foundry Voice Live Agent ===" -ForegroundColor Cyan
         Write-Host ""
 
-        Push-Location scripts
-
-        # Install dependencies using uv
-        Write-Host "Installing dependencies with uv..." -ForegroundColor Yellow
-        uv sync
-
         # Create the agent
-        $output = uv run python agent_manager.py create 2>&1 | Tee-Object -Variable outputLines
+        $output = dotnet run --project scripts/AgentManager -- create 2>&1 | Tee-Object -Variable outputLines
 
         # Extract and save resource IDs to azd env
         foreach ($line in $outputLines) {
@@ -56,22 +50,14 @@ hooks:
           Write-Host "Setting FoundryAgentVersion=$version on $webAppName..." -ForegroundColor Yellow
           az webapp config appsettings set -g $resourceGroup -n $webAppName --settings "FoundryAgentVersion=$version" --output none
         }
-
-        Pop-Location
     posix:
       shell: bash
       run: |
         echo "=== Creating Foundry Voice Live Agent ==="
         echo ""
 
-        cd scripts
-
-        # Install dependencies using uv
-        echo "Installing dependencies with uv..."
-        uv sync
-
         # Create the agent and capture output
-        output=$(uv run python agent_manager.py create 2>&1)
+        output=$(dotnet run --project scripts/AgentManager -- create 2>&1)
         echo "$output"
 
         # Extract and save resource IDs to azd env
@@ -101,8 +87,6 @@ hooks:
           az webapp config appsettings set -g "$resource_group" -n "$web_app_name" --settings "FoundryAgentVersion=$version" --output none
         fi
 
-        cd ..
-
   # Before tearing down infrastructure, delete the agent and resources
   predown:
     windows:
@@ -118,20 +102,13 @@ hooks:
           exit 0
         }
 
-        Push-Location scripts
-
-        # Install dependencies using uv (if needed)
-        uv sync
-
         # Delete the agent and resources
-        uv run python agent_manager.py delete
+        dotnet run --project scripts/AgentManager -- delete
 
         # Clear the IDs from env
         azd env set AGENT_ID ""
         azd env set VECTORSTORE_ID ""
         azd env set FILE_ID ""
-
-        Pop-Location
     posix:
       shell: bash
       run: |
@@ -143,17 +120,10 @@ hooks:
           exit 0
         fi
 
-        cd scripts
-
-        # Install dependencies using uv (if needed)
-        uv sync
-
         # Delete the agent and resources
-        uv run python agent_manager.py delete
+        dotnet run --project scripts/AgentManager -- delete
 
         # Clear the IDs from env
         azd env set AGENT_ID ""
         azd env set VECTORSTORE_ID ""
         azd env set FILE_ID ""
-
-        cd ..

@@ -75,26 +75,27 @@ module web './app/web.bicep' = {
   }
 }
 
-// Assign Cognitive Services OpenAI User role to the developer (for local development and agent management)
-var CognitiveServicesOpenAIUser = '5e0bd9bd-7b93-4f28-af87-19fc36ad61bd'
+// Assign Azure AI User role to the developer (for local development and agent management)
+// Voice Live Agent mode requires Azure AI User (per official quickstart)
+var AzureAIUser = '53ca6127-db72-4b80-b1b0-d745d6d5456d'
 module openaiRoleAssignmentDeveloper 'app/rbac/openai-access.bicep' = if (!empty(principalId)) {
   name: 'openaiRoleAssignmentDeveloper'
   scope: rg
   params: {
     openAIAccountName: aiServices.outputs.aiServicesName
-    roleDefinitionId: CognitiveServicesOpenAIUser
+    roleDefinitionId: AzureAIUser
     principalId: principalId
     principalType: 'User'
   }
 }
 
-// Assign Cognitive Services OpenAI User role to the App Service managed identity
+// Assign Azure AI User role to the App Service managed identity
 module openaiRoleAssignmentApp 'app/rbac/openai-access.bicep' = {
   name: 'openaiRoleAssignmentApp'
   scope: rg
   params: {
     openAIAccountName: aiServices.outputs.aiServicesName
-    roleDefinitionId: CognitiveServicesOpenAIUser
+    roleDefinitionId: AzureAIUser
     principalId: web.outputs.identityPrincipalId
     principalType: 'ServicePrincipal'
   }

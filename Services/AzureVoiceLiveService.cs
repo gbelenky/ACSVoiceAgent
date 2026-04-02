@@ -21,6 +21,7 @@ public class AzureVoiceLiveService
     private VoiceLiveSession? _session;
     private CallSession? _callSession;
     private CancellationTokenSource? _cts;
+    private bool _greetingSent;
 
     public AzureVoiceLiveService(
         AcsMediaStreamingHandler mediaStreaming,
@@ -90,9 +91,6 @@ public class AzureVoiceLiveService
         _logger.LogInformation("Connected to Voice Live with Foundry Agent successfully");
 
         _ = Task.Run(() => ReceiveEventsAsync(_cts.Token));
-
-        // Send a proactive greeting via raw command
-        await SendProactiveGreetingAsync(_cts.Token);
     }
 
     private async Task SendProactiveGreetingAsync(CancellationToken cancellationToken)
@@ -158,6 +156,11 @@ public class AzureVoiceLiveService
 
             case SessionUpdateSessionUpdated:
                 _logger.LogInformation("Voice Live session updated and ready");
+                if (!_greetingSent)
+                {
+                    _greetingSent = true;
+                    await SendProactiveGreetingAsync(cancellationToken);
+                }
                 break;
 
             case SessionUpdateResponseAudioDelta audioDelta:
@@ -205,14 +208,17 @@ public class AzureVoiceLiveService
 
             case SessionUpdateError errorEvent:
                 var errorMsg = errorEvent.Error?.Message;
-                if (errorMsg?.Contains("Cancellation failed: no active response") == true)
+                var errorCode = errorEvent.Error?.Code;
+                if (errorMsg?.Contains("Cancellation failed: no active response") == true
+                    || errorCode == "conversation_already_has_active_response")
                 {
-                    // Benign cancellation error during barge-in
+                    // Benign errors during barge-in or greeting overlap
+                    _logger.LogDebug("Benign Voice Live error: {Code} - {Message}", errorCode, errorMsg);
                 }
                 else
                 {
                     _logger.LogWarning("Voice Live error: {Code} - {Message}",
-                        errorEvent.Error?.Code, errorMsg);
+                        errorCode, errorMsg);
                 }
                 break;
 
