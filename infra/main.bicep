@@ -13,12 +13,12 @@ param location string
 @secure()
 param acsConnectionString string
 
-@description('Azure AI Voice Live API key (from existing AI Services resource)')
+@description('Voice Live API key (from existing AI Services resource)')
 @secure()
-param azureVoiceLiveApiKey string
+param voiceLiveApiKey string
 
-@description('Azure AI Voice Live endpoint (from existing AI Services resource)')
-param azureVoiceLiveEndpoint string
+@description('Voice Live endpoint (from existing AI Services resource)')
+param voiceLiveEndpoint string
 
 @description('Voice Live model deployment name')
 param voiceLiveModel string = 'gpt-realtime-mini'
@@ -46,8 +46,8 @@ module web './app/web.bicep' = {
     location: location
     tags: tags
     acsConnectionString: acsConnectionString
-    azureVoiceLiveApiKey: azureVoiceLiveApiKey
-    azureVoiceLiveEndpoint: azureVoiceLiveEndpoint
+    voiceLiveApiKey: voiceLiveApiKey
+    voiceLiveEndpoint: voiceLiveEndpoint
     voiceLiveModel: voiceLiveModel
     transferPhoneNumber: transferPhoneNumber
     logAnalyticsWorkspaceName: '${abbrs.operationalInsightsWorkspaces}${resourceToken}'

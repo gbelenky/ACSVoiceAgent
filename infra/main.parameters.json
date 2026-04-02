@@ -11,11 +11,11 @@
     "acsConnectionString": {
       "value": "${ACS_CONNECTION_STRING}"
     },
-    "azureVoiceLiveApiKey": {
-      "value": "${AZURE_VOICE_LIVE_API_KEY}"
+    "voiceLiveApiKey": {
+      "value": "${VOICE_LIVE_API_KEY}"
     },
-    "azureVoiceLiveEndpoint": {
-      "value": "${AZURE_VOICE_LIVE_ENDPOINT}"
+    "voiceLiveEndpoint": {
+      "value": "${VOICE_LIVE_ENDPOINT}"
     },
     "voiceLiveModel": {
       "value": "${VOICE_LIVE_MODEL}"

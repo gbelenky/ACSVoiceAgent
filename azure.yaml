@@ -14,8 +14,8 @@ hooks:
           Logging = @{ LogLevel = @{ Default = "Information"; "Microsoft.AspNetCore" = "Warning" } }
           DevTunnelUri = ""
           AcsConnectionString = $env:ACS_CONNECTION_STRING
-          AzureVoiceLiveApiKey = $env:AZURE_VOICE_LIVE_API_KEY
-          AzureVoiceLiveEndpoint = $env:AZURE_VOICE_LIVE_ENDPOINT
+          VoiceLiveApiKey = $env:VOICE_LIVE_API_KEY
+          VoiceLiveEndpoint = $env:VOICE_LIVE_ENDPOINT
           VoiceLiveModel = $env:VOICE_LIVE_MODEL
           TransferPhoneNumber = $env:TRANSFER_PHONE_NUMBER
         }
@@ -38,7 +38,10 @@ hooks:
             }
           }
         } | ConvertTo-Json -Depth 5 -Compress
-        az rest --method PUT --uri "https://management.azure.com${acsResourceId}/providers/Microsoft.EventGrid/eventSubscriptions/${subName}?api-version=2024-06-01-preview" --body $body
+        $tmpFile = [System.IO.Path]::GetTempFileName()
+        $body | Out-File -FilePath $tmpFile -Encoding utf8 -NoNewline
+        az rest --method PUT --uri "https://management.azure.com${acsResourceId}/providers/Microsoft.EventGrid/eventSubscriptions/${subName}?api-version=2024-06-01-preview" --body "@$tmpFile" --headers "Content-Type=application/json"
+        Remove-Item $tmpFile -ErrorAction SilentlyContinue
         Write-Host "EventGrid subscription '$subName' configured to $webhookUrl"
     posix:
       shell: bash
@@ -54,8 +57,8 @@ hooks:
           },
           "DevTunnelUri": "",
           "AcsConnectionString": "$ACS_CONNECTION_STRING",
-          "AzureVoiceLiveApiKey": "$AZURE_VOICE_LIVE_API_KEY",
-          "AzureVoiceLiveEndpoint": "$AZURE_VOICE_LIVE_ENDPOINT",
+          "VoiceLiveApiKey": "$VOICE_LIVE_API_KEY",
+          "VoiceLiveEndpoint": "$VOICE_LIVE_ENDPOINT",
           "VoiceLiveModel": "$VOICE_LIVE_MODEL",
           "TransferPhoneNumber": "$TRANSFER_PHONE_NUMBER"
         }
@@ -67,7 +70,12 @@ hooks:
         ACS_RESOURCE_ID=$(az communication show --name "$ACS_RESOURCE_NAME" --resource-group "$ACS_RESOURCE_GROUP" --query "id" -o tsv)
         WEBHOOK_URL="$SERVICE_WEB_URI/api/incomingCall"
         SUB_NAME="incoming-call-$AZURE_ENV_NAME"
-        az rest --method PUT --uri "https://management.azure.com${ACS_RESOURCE_ID}/providers/Microsoft.EventGrid/eventSubscriptions/${SUB_NAME}?api-version=2024-06-01-preview" --body "{\"properties\":{\"destination\":{\"endpointType\":\"WebHook\",\"properties\":{\"endpointUrl\":\"${WEBHOOK_URL}\"}},\"filter\":{\"includedEventTypes\":[\"Microsoft.Communication.IncomingCall\"]}}}"
+        TMPFILE=$(mktemp)
+        cat > "$TMPFILE" << EOJSON
+        {"properties":{"destination":{"endpointType":"WebHook","properties":{"endpointUrl":"${WEBHOOK_URL}"}},"filter":{"includedEventTypes":["Microsoft.Communication.IncomingCall"]}}}
+        EOJSON
+        az rest --method PUT --uri "https://management.azure.com${ACS_RESOURCE_ID}/providers/Microsoft.EventGrid/eventSubscriptions/${SUB_NAME}?api-version=2024-06-01-preview" --body @"$TMPFILE" --headers "Content-Type=application/json"
+        rm -f "$TMPFILE"
         echo "EventGrid subscription '$SUB_NAME' configured to $WEBHOOK_URL"
 
 services:

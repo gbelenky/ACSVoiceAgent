@@ -40,10 +40,10 @@ public class AzureVoiceLiveService
 
     private async Task CreateSessionAsync()
     {
-        var apiKey = _configuration.GetValue<string>("AzureVoiceLiveApiKey");
+        var apiKey = _configuration.GetValue<string>("VoiceLiveApiKey");
         ArgumentNullException.ThrowIfNullOrEmpty(apiKey);
 
-        var endpoint = _configuration.GetValue<string>("AzureVoiceLiveEndpoint");
+        var endpoint = _configuration.GetValue<string>("VoiceLiveEndpoint");
         ArgumentNullException.ThrowIfNullOrEmpty(endpoint);
 
         var model = _configuration.GetValue<string>("VoiceLiveModel");

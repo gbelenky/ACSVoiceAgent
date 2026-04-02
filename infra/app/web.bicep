@@ -6,8 +6,8 @@ param tags object = {}
 @secure()
 param acsConnectionString string
 @secure()
-param azureVoiceLiveApiKey string
-param azureVoiceLiveEndpoint string
+param voiceLiveApiKey string
+param voiceLiveEndpoint string
 param voiceLiveModel string
 param transferPhoneNumber string
 
@@ -185,8 +185,8 @@ resource web 'Microsoft.Web/sites@2023-12-01' = {
       minTlsVersion: '1.2'
       appSettings: [
         { name: 'AcsConnectionString', value: acsConnectionString }
-        { name: 'AzureVoiceLiveApiKey', value: azureVoiceLiveApiKey }
-        { name: 'AzureVoiceLiveEndpoint', value: azureVoiceLiveEndpoint }
+        { name: 'VoiceLiveApiKey', value: voiceLiveApiKey }
+        { name: 'VoiceLiveEndpoint', value: voiceLiveEndpoint }
         { name: 'VoiceLiveModel', value: voiceLiveModel }
         { name: 'TransferPhoneNumber', value: transferPhoneNumber }
         { name: 'DevTunnelUri', value: 'https://${name}.azurewebsites.net' }

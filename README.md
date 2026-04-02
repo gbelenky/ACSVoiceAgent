@@ -66,9 +66,37 @@ Server-side noise reduction is configured via `AudioNoiseReductionType`. Availab
 ## Prerequisites
 
 - [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0)
+- [Azure CLI](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli) (for deployment and resource management)
+- [Azure Dev Tunnels CLI](https://learn.microsoft.com/en-us/azure/developer/dev-tunnels/get-started) (`devtunnel`) — for exposing your local server to ACS
 - An **Azure Communication Services** resource with a phone number configured for incoming calls
-- An **Azure AI Foundry** resource with a `gpt-realtime-mini` model deployment
-- A tunneling tool to expose your local server ([Azure Dev Tunnels](https://learn.microsoft.com/en-us/azure/developer/dev-tunnels/overview) or [ngrok](https://ngrok.com/))
+- An **Azure AI Services** resource (kind: `AIServices`) with a `gpt-realtime-mini` model deployment
+- (Optional) [Azure Developer CLI](https://learn.microsoft.com/en-us/azure/developer/azure-developer-cli/install-azd) (`azd`) — for automated Azure deployment
+
+### Provisioning Azure Resources
+
+Both the ACS resource and the AI Services resource are **long-lived, external resources** — they are not created by the Bicep templates in this repo. You need to set them up once.
+
+#### Azure Communication Services
+
+1. Create an ACS resource in the [Azure Portal](https://portal.azure.com) → **Create a resource** → search **Communication Services**
+2. Choose a **Data Location** (e.g., `Europe`) and create
+3. Go to **Phone Numbers** → **Get a number** — acquire a phone number with **Inbound calling** capability
+4. Note the **Connection String** from **Settings → Keys** (you'll need this for configuration)
+
+#### Azure AI Foundry + Model Deployment
+
+The `gpt-realtime-mini` model is deployed through [Azure AI Foundry](https://ai.azure.com):
+
+1. Go to [ai.azure.com](https://ai.azure.com) and create a **Foundry project** (or use an existing one)
+   - The project must be in a region that supports `gpt-realtime-mini` (e.g., `swedencentral`)
+2. In your project, go to **Model catalog** → search for `gpt-realtime-mini` → **Deploy**
+   - Deployment name: `gpt-realtime-mini`
+   - Deployment type: `Global Standard`
+3. After deployment, get the connection details:
+   - **Endpoint**: From the project's **Overview** page — the `.cognitiveservices.azure.com` URL of the underlying AI Services resource
+   - **API Key**: From the AI Services resource in Azure Portal → **Resource Management → Keys and Endpoint**
+
+> **Check model availability**: In AI Foundry, the model catalog shows which regions support each model. Alternatively: `az cognitiveservices model list --location <region> --query "[?model.name=='gpt-realtime-mini']"`
 
 ## Local Setup
 
@@ -105,8 +133,8 @@ Then edit `appsettings.Development.json`:
 {
   "DevTunnelUri": "https://<your-tunnel-url>.devtunnels.ms",
   "AcsConnectionString": "endpoint=https://<your-acs>.communication.azure.com/;accesskey=<key>",
-  "AzureVoiceLiveApiKey": "<your-azure-ai-foundry-api-key>",
-  "AzureVoiceLiveEndpoint": "https://<your-foundry-resource>.cognitiveservices.azure.com",
+  "VoiceLiveApiKey": "<your-api-key>",
+  "VoiceLiveEndpoint": "https://<your-ai-services>.cognitiveservices.azure.com",
   "VoiceLiveModel": "gpt-realtime-mini",
   "TransferPhoneNumber": "+1234567890"
 }
@@ -115,15 +143,15 @@ Then edit `appsettings.Development.json`:
 | Setting | Description |
 |---|---|
 | `DevTunnelUri` | Your dev tunnel URL (callback and WebSocket base URL) |
-| `AcsConnectionString` | Connection string from your ACS resource (Azure Portal → Keys) |
-| `AzureVoiceLiveApiKey` | API key from your Azure AI Foundry resource |
-| `AzureVoiceLiveEndpoint` | Azure AI Foundry endpoint URL (`.cognitiveservices.azure.com`) |
+| `AcsConnectionString` | Connection string from your ACS resource (Azure Portal → ACS resource → Settings → Keys) |
+| `VoiceLiveApiKey` | API key from your Azure AI Services resource (Azure Portal → AI Services resource → Resource Management → Keys and Endpoint) |
+| `VoiceLiveEndpoint` | Endpoint URL from the same Keys and Endpoint page (the `.cognitiveservices.azure.com` URL) |
 | `VoiceLiveModel` | Model deployment name (default: `gpt-realtime-mini`) |
 | `TransferPhoneNumber` | Phone number for call transfers (E.164 format) |
 
 > **Tip**: If you run `azd provision`, the postprovision hook automatically generates `appsettings.Development.json` with all values from the provisioned resources. You only need to fill in `DevTunnelUri` afterward.
 
-> **Foundry Agent branch**: The `foundry-agent` branch uses a different template with additional settings (`FoundryAgentName`, `FoundryProjectName`) and no `AzureVoiceLiveApiKey` (it uses Entra ID auth instead).
+> **Foundry Agent branch**: The `foundry-agent` branch uses a different template with additional settings (`FoundryAgentName`, `FoundryProjectName`) and no `VoiceLiveApiKey` (it uses Entra ID auth instead).
 
 ### 4. Customize the system prompt
 
@@ -131,14 +159,17 @@ The agent's personality and behavior are defined in `Prompts/system-prompt.txt`.
 
 ### 5. Register the EventGrid webhook
 
-In the Azure Portal, configure your ACS phone number to send **IncomingCall** events to your dev tunnel:
+For local development, you need an EventGrid subscription on your ACS resource that points to your **dev tunnel URL**. This tells ACS to notify your local app when a phone call comes in.
 
-1. Go to your **ACS resource** → **Events**
+1. Go to your **ACS resource** in the Azure Portal → **Events**
 2. Create an **Event Subscription**:
+   - **Name**: e.g. `local-dev` (you'll reuse/update this)
    - **Event Types**: Select `Incoming Call`
    - **Endpoint Type**: Web Hook
    - **Endpoint URL**: `https://<your-tunnel-url>/api/incomingCall`
-3. Save — EventGrid will send a validation request, and the app will respond automatically
+3. Save — EventGrid will send a validation request to your tunnel, and the app will respond automatically
+
+> **Note**: If your dev tunnel URL changes (e.g., you recreate the tunnel), you must update this EventGrid subscription to the new URL. You can also use a [persistent dev tunnel](https://learn.microsoft.com/en-us/azure/developer/dev-tunnels/get-started#create-a-tunnel) to keep a stable URL across sessions.
 
 ### 6. Run the app
 
@@ -179,8 +210,8 @@ Deploy to Azure using the [Azure Developer CLI](https://learn.microsoft.com/en-u
 ```bash
 azd init
 azd env set ACS_CONNECTION_STRING "endpoint=https://<your-acs>.communication.azure.com/;accesskey=<key>"
-azd env set AZURE_VOICE_LIVE_API_KEY "<your-ai-services-api-key>"
-azd env set AZURE_VOICE_LIVE_ENDPOINT "https://<your-ai-services>.cognitiveservices.azure.com"
+azd env set VOICE_LIVE_API_KEY "<your-ai-services-api-key>"
+azd env set VOICE_LIVE_ENDPOINT "https://<your-ai-services>.cognitiveservices.azure.com"
 azd env set TRANSFER_PHONE_NUMBER "+1234567890"
 azd env set VOICE_LIVE_MODEL "gpt-realtime-mini"
 azd env set ACS_RESOURCE_NAME "<your-acs-resource-name>"
@@ -340,81 +371,6 @@ Additional advantages for this workload:
 
 **Trade-offs**: Requires a container image (Dockerfile or build pack), and networking/observability setup is slightly more involved than App Service. The application code requires **no changes** — only the hosting infrastructure differs.
 
-## Deployment with Azure Developer CLI (azd)
-
-The project includes `azd` infrastructure to deploy to **Azure App Service**. The ACS resource and AI model are assumed to already exist.
-
-### What gets provisioned
-
-| Resource | SKU | Why |
-|---|---|---|
-| Resource Group | — | Container for all resources |
-| App Service Plan | B1 (Linux) | Always On + WebSocket support required |
-| App Service | .NET 8 on Linux | Hosts the voice agent app |
-
-### Deploy
-
-1. **Install azd** if you haven't already: [aka.ms/azd-install](https://aka.ms/azd-install)
-
-2. **Initialize the environment** (creates `.azure/<env-name>/` directory):
-
-   ```bash
-   azd init -e dev
-   ```
-
-3. **Configure your secrets** — copy the template and fill in your values:
-
-   ```bash
-   cp .env.template .azure/dev/.env
-   ```
-
-   Then edit `.azure/dev/.env`:
-
-   ```env
-   AZURE_LOCATION=westeurope
-   ACS_CONNECTION_STRING=endpoint=https://<your-acs>.communication.azure.com/;accesskey=<key>
-   AZURE_VOICE_LIVE_API_KEY=<your-azure-ai-foundry-api-key>
-   AZURE_VOICE_LIVE_ENDPOINT=https://<your-resource>.cognitiveservices.azure.com
-   VOICE_LIVE_MODEL=gpt-realtime-mini
-   TRANSFER_PHONE_NUMBER=+4922180102503
-   ```
-
-   > Alternatively, use `azd env set KEY value` for each variable instead of editing the file directly.
-
-4. **Provision and deploy**:
-
-   ```bash
-   azd up
-   ```
-
-   This will:
-   - Create the resource group, App Service Plan, and App Service
-   - Configure WebSockets, Always On, and HTTPS-only
-   - Set all app settings (connection strings, API keys, etc.)
-   - Build and deploy the .NET app
-
-5. **Update the ACS EventGrid webhook** to point to your new App Service URL:
-
-   The `azd up` output prints `SERVICE_WEB_URI` (e.g. `https://app-xxxx.azurewebsites.net`). Use this to update your IncomingCall subscription:
-
-   1. Go to the **Azure Portal** → your **ACS resource** → **Events**
-   2. Click on your existing **Event Subscription** (or create one if this is a new ACS resource)
-   3. Under **Endpoint**, change the URL to:
-      ```
-      https://<app-name>.azurewebsites.net/api/incomingCall
-      ```
-      Replace `<app-name>` with the actual App Service name from the `azd up` output.
-   4. Click **Save**
-   5. EventGrid will send a validation handshake — the deployed app handles this automatically
-
-   > If you were previously using a dev tunnel URL, this replaces it. You can switch back to the dev tunnel for local development by updating the endpoint again.
-
-### Subsequent deployments
-
-After the initial `azd up`, use `azd deploy` to push code changes without re-provisioning infrastructure.
-
-> **Note**: Do **not** use a Consumption plan — the app requires long-lived WebSocket connections and Always On to avoid cold starts mid-call.
-
 ## Conversation Transcription
 
 The Voice Live SDK supports real-time transcription of both the agent's and caller's speech. This is **not enabled by default** — here are the options and trade-offs:
@@ -479,3 +435,45 @@ The [Azure AI Foundry Evaluations SDK](https://learn.microsoft.com/en-us/azure/a
 5. **Custom evaluators** are most impactful for call centers: check intent detection accuracy, tool selection correctness, system prompt compliance, and resolution rate
 
 > **Note**: SSML is not applicable in this architecture. The Voice Live API manages the text→TTS pipeline internally — there is no access to intermediate text for SSML wrapping. The DragonHD voice handles prosody (intonation, pacing, emphasis) automatically from context. Voice behavior is instead controlled through the **system prompt** (e.g., "speak slowly when reading order numbers", "use a warm tone for complaints").
+
+## Foundry Agent Branch
+
+The [`foundry-agent`](https://github.com/gbelenky/ACSVoiceAgent/tree/foundry-agent) branch replaces the direct Voice Live SDK integration with an **Azure AI Foundry Agent** that manages the conversation. Key differences:
+
+| | `main` (this branch) | `foundry-agent` |
+|---|---|---|
+| **AI integration** | Direct `VoiceLiveClient` → `gpt-realtime-mini` | Foundry Agent → Voice Live API |
+| **Tool definitions** | Inline `VoiceLiveFunctionDefinition` in code | Defined on the Foundry Agent (managed in AI Foundry portal) |
+| **Authentication** | API key (`AzureKeyCredential`) | Entra ID (`DefaultAzureCredential`) |
+| **SDK version** | `Azure.AI.VoiceLive` 1.0.0 | `Azure.AI.VoiceLive` 1.1.0-beta.3 |
+| **Hold audio** | None | 440Hz ring-back tone during Voice Live session connect |
+| **Configuration** | `VoiceLiveApiKey` + `VoiceLiveEndpoint` | `FoundryAgentName` + `FoundryProjectName` + project endpoint |
+
+The Foundry Agent approach allows managing tools, instructions, and knowledge sources through the AI Foundry portal without code changes. See the [`foundry-agent` branch README](https://github.com/gbelenky/ACSVoiceAgent/tree/foundry-agent) for setup instructions.
+
+### Working with the Foundry Agent branch
+
+The two branches have **different NuGet packages**, **different `appsettings.Development.json` structures**, and **separate azd environments**. The recommended approach is to clone into a separate folder:
+
+```bash
+# Clone into a separate folder for the foundry-agent branch
+git clone -b foundry-agent https://github.com/gbelenky/ACSVoiceAgent.git ACSVoiceAgent-foundry
+cd ACSVoiceAgent-foundry
+
+# Create appsettings.Development.json from the branch's template
+cp appsettings.Development.template.json appsettings.Development.json
+# Fill in your values — different settings than main (see the template)
+#   Key differences: no VoiceLiveApiKey, uses FoundryAgentName + FoundryProjectName
+
+# Restore packages and build
+dotnet restore
+dotnet build
+
+# If using azd, create a separate environment for this branch
+azd env new voiceagent-foundry
+# Then set the branch-specific env vars (see foundry-agent README)
+```
+
+This avoids having to clean build artifacts, recreate config, and restore packages every time you switch. It also lets you run both versions side-by-side for comparison.
+
+> **Important**: Do not copy `appsettings.Development.json` between the two folders — the settings are incompatible. Always start from each branch's own template.
