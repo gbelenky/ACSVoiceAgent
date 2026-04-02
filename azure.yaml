@@ -26,7 +26,7 @@ hooks:
         Write-Host "Configuring EventGrid subscription for IncomingCall events..."
         $acsResourceId = az communication show --name $env:ACS_RESOURCE_NAME --resource-group $env:ACS_RESOURCE_GROUP --query "id" -o tsv
         $webhookUrl = "$env:SERVICE_WEB_URI/api/incomingCall"
-        $subName = "incoming-call-$env:AZURE_ENV_NAME"
+        $subName = "incoming-call"
         $body = @{
           properties = @{
             destination = @{
@@ -69,7 +69,7 @@ hooks:
         echo "Configuring EventGrid subscription for IncomingCall events..."
         ACS_RESOURCE_ID=$(az communication show --name "$ACS_RESOURCE_NAME" --resource-group "$ACS_RESOURCE_GROUP" --query "id" -o tsv)
         WEBHOOK_URL="$SERVICE_WEB_URI/api/incomingCall"
-        SUB_NAME="incoming-call-$AZURE_ENV_NAME"
+        SUB_NAME="incoming-call"
         TMPFILE=$(mktemp)
         cat > "$TMPFILE" << EOJSON
         {"properties":{"destination":{"endpointType":"WebHook","properties":{"endpointUrl":"${WEBHOOK_URL}"}},"filter":{"includedEventTypes":["Microsoft.Communication.IncomingCall"]}}}
