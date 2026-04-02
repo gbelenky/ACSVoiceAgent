@@ -45,6 +45,7 @@ app.MapGet("/", () => "ACS Voice Agent with Voice Live SDK");
 // --- Incoming Call (EventGrid) ---
 app.MapPost("/api/incomingCall", async (
     [FromBody] EventGridEvent[] eventGridEvents,
+    CallSessionManager sessionManager,
     ILogger<Program> logger) =>
 {
     foreach (var eventGridEvent in eventGridEvents)
@@ -67,8 +68,9 @@ app.MapPost("/api/incomingCall", async (
         var callerId = Helper.GetCallerId(jsonObject);
         var incomingCallContext = Helper.GetIncomingCallContext(jsonObject);
         logger.LogInformation("Incoming call from {CallerId}", callerId);
-        var callbackUri = new Uri(new Uri(appBaseUrl!), $"/api/callbacks/{Guid.NewGuid()}?callerId={callerId}");
-        var websocketUri = appBaseUrl!.Replace("https", "wss") + "/ws";
+        var contextId = Guid.NewGuid().ToString();
+        var callbackUri = new Uri(new Uri(appBaseUrl!), $"/api/callbacks/{contextId}?callerId={callerId}");
+        var websocketUri = appBaseUrl!.Replace("https", "wss") + $"/ws/{contextId}";
 
         logger.LogInformation("Callback URL: {CallbackUri}", callbackUri);
         logger.LogInformation("WebSocket URL: {WebSocketUri}", websocketUri);
@@ -87,9 +89,10 @@ app.MapPost("/api/incomingCall", async (
             MediaStreamingOptions = mediaStreamingOptions,
         };
 
+        sessionManager.RegisterPendingSession(contextId);
         var answerCallResult = await client.AnswerCallAsync(options);
-        logger.LogInformation("Answered call. Connection ID: {ConnectionId}",
-            answerCallResult.Value.CallConnection.CallConnectionId);
+        logger.LogInformation("Answered call. Connection ID: {ConnectionId}, Context: {ContextId}",
+            answerCallResult.Value.CallConnection.CallConnectionId, contextId);
     }
     return Results.Ok();
 });
@@ -109,10 +112,10 @@ app.MapPost("/api/callbacks/{contextId}", (
 
         if (@event is CallConnected)
         {
-            logger.LogInformation("Call connected. ConnectionId: {ConnectionId}, CorrelationId: {CorrelationId}",
-                @event.CallConnectionId, @event.CorrelationId);
+            logger.LogInformation("Call connected. ConnectionId: {ConnectionId}, CorrelationId: {CorrelationId}, Context: {ContextId}",
+                @event.CallConnectionId, @event.CorrelationId, contextId);
 
-            sessionManager.CreateSession(@event.CallConnectionId, @event.CorrelationId, callerId);
+            sessionManager.CreateSession(contextId, @event.CallConnectionId, @event.CorrelationId, callerId);
         }
         else if (@event is CallDisconnected)
         {
@@ -134,22 +137,46 @@ app.MapPost("/api/callbacks/{contextId}", (
 // --- WebSocket Endpoint for ACS Media Streaming ---
 app.Use(async (context, next) =>
 {
-    if (context.Request.Path == "/ws" && context.WebSockets.IsWebSocketRequest)
-        await HandleWebSocket(context);
+    if (context.Request.Path.StartsWithSegments("/ws", out var remaining) && context.WebSockets.IsWebSocketRequest)
+    {
+        var wsContextId = remaining.Value?.TrimStart('/');
+        if (string.IsNullOrEmpty(wsContextId))
+        {
+            context.Response.StatusCode = 400;
+            return;
+        }
+        await HandleWebSocket(context, wsContextId);
+    }
     else
+    {
         await next(context);
+    }
 });
 
 app.Run();
 
-async Task HandleWebSocket(HttpContext context)
+async Task HandleWebSocket(HttpContext context, string contextId)
 {
     var logger = context.RequestServices.GetRequiredService<ILogger<Program>>();
     var sessionManager = context.RequestServices.GetRequiredService<CallSessionManager>();
     var config = context.RequestServices.GetRequiredService<IConfiguration>();
 
     var webSocket = await context.WebSockets.AcceptWebSocketAsync();
-    logger.LogInformation("ACS WebSocket connected");
+    logger.LogInformation("ACS WebSocket connected for context {ContextId}", contextId);
+
+    // Wait for CallConnected to create the session for THIS specific call
+    var session = await sessionManager.WaitForSessionAsync(contextId, TimeSpan.FromSeconds(30));
+
+    if (session == null)
+    {
+        logger.LogWarning("No call session found for context {ContextId}, closing WebSocket", contextId);
+        await webSocket.CloseAsync(WebSocketCloseStatus.NormalClosure, "No session", CancellationToken.None);
+        return;
+    }
+
+    session.AcsWebSocket = webSocket;
+    logger.LogInformation("Session bound: CallConnectionId={CallConnectionId}, CallerId={CallerId}",
+        session.CallConnectionId, session.CallerId);
 
     var mediaHandler = new AcsMediaStreamingHandler(webSocket,
         context.RequestServices.GetRequiredService<ILogger<AcsMediaStreamingHandler>>());
@@ -157,21 +184,6 @@ async Task HandleWebSocket(HttpContext context)
     var voiceLiveService = new AzureVoiceLiveService(
         mediaHandler, client, config,
         context.RequestServices.GetRequiredService<ILogger<AzureVoiceLiveService>>());
-
-    // Wait for CallConnected to create the session (Channel-based, no polling)
-    var session = await sessionManager.WaitForSessionAsync(TimeSpan.FromSeconds(30));
-
-    if (session != null)
-    {
-        session.AcsWebSocket = webSocket;
-        logger.LogInformation("Session bound: CallConnectionId={CallConnectionId}, CallerId={CallerId}",
-            session.CallConnectionId, session.CallerId);
-    }
-    else
-    {
-        logger.LogWarning("No call session found after 30s, starting Voice Live without session tracking");
-        session = new CallSession();
-    }
 
     await voiceLiveService.StartAsync(session);
 

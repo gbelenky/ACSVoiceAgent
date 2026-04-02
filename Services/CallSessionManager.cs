@@ -1,5 +1,4 @@
 using System.Collections.Concurrent;
-using System.Threading.Channels;
 using ACSVoiceAgent.Models;
 
 namespace ACSVoiceAgent.Services;
@@ -7,7 +6,7 @@ namespace ACSVoiceAgent.Services;
 public class CallSessionManager
 {
     private readonly ConcurrentDictionary<string, CallSession> _sessions = new();
-    private readonly Channel<CallSession> _newSessions = Channel.CreateUnbounded<CallSession>();
+    private readonly ConcurrentDictionary<string, TaskCompletionSource<CallSession>> _pendingSessions = new();
     private readonly ILogger<CallSessionManager> _logger;
 
     public CallSessionManager(ILogger<CallSessionManager> logger)
@@ -15,7 +14,17 @@ public class CallSessionManager
         _logger = logger;
     }
 
-    public CallSession CreateSession(string callConnectionId, string correlationId, string callerId)
+    /// <summary>
+    /// Registers a pending session when the call is answered.
+    /// Must be called BEFORE AnswerCallAsync so the WS handler can find it.
+    /// </summary>
+    public void RegisterPendingSession(string contextId)
+    {
+        _pendingSessions.TryAdd(contextId, new TaskCompletionSource<CallSession>(TaskCreationOptions.RunContinuationsAsynchronously));
+        _logger.LogInformation("Registered pending session for context {ContextId}", contextId);
+    }
+
+    public CallSession CreateSession(string contextId, string callConnectionId, string correlationId, string callerId)
     {
         var session = new CallSession
         {
@@ -25,47 +34,53 @@ public class CallSessionManager
             Cts = new CancellationTokenSource()
         };
 
-        if (_sessions.TryAdd(correlationId, session))
+        _sessions.TryAdd(contextId, session);
+        _logger.LogInformation("Created call session for context {ContextId}, connection {CallConnectionId}",
+            contextId, callConnectionId);
+
+        if (_pendingSessions.TryRemove(contextId, out var tcs))
         {
-            _logger.LogInformation("Created call session for correlation {CorrelationId}, connection {CallConnectionId}",
-                correlationId, callConnectionId);
-            _newSessions.Writer.TryWrite(session);
-            return session;
+            tcs.TrySetResult(session);
         }
 
-        _logger.LogWarning("Session already exists for correlation {CorrelationId}", correlationId);
-        return _sessions[correlationId];
+        return session;
     }
 
     /// <summary>
-    /// Waits for the next session to be created (from CallConnected callback).
-    /// Returns immediately if an unbound session already exists.
+    /// Waits for CallConnected to create the session for a specific call context.
     /// </summary>
-    public async Task<CallSession?> WaitForSessionAsync(TimeSpan timeout, CancellationToken ct = default)
+    public async Task<CallSession?> WaitForSessionAsync(string contextId, TimeSpan timeout, CancellationToken ct = default)
     {
-        // Check existing sessions first
-        var session = GetLatestUnboundSession();
-        if (session != null) return session;
+        if (_sessions.TryGetValue(contextId, out var existing))
+            return existing;
+
+        if (!_pendingSessions.TryGetValue(contextId, out var tcs))
+        {
+            _logger.LogWarning("No pending session registered for context {ContextId}", contextId);
+            return null;
+        }
 
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         cts.CancelAfter(timeout);
         try
         {
-            _logger.LogInformation("Waiting up to {Timeout}s for CallConnected session...", timeout.TotalSeconds);
-            session = await _newSessions.Reader.ReadAsync(cts.Token);
-            _logger.LogInformation("Session received: connection {CallConnectionId}", session.CallConnectionId);
-            return session;
+            _logger.LogInformation("Waiting up to {Timeout}s for CallConnected (context {ContextId})...",
+                timeout.TotalSeconds, contextId);
+            return await tcs.Task.WaitAsync(cts.Token);
         }
         catch (OperationCanceledException)
         {
-            _logger.LogWarning("Timed out waiting {Timeout}s for a call session", timeout.TotalSeconds);
+            _logger.LogWarning("Timed out waiting {Timeout}s for session (context {ContextId})",
+                timeout.TotalSeconds, contextId);
+            _pendingSessions.TryRemove(contextId, out _);
             return null;
         }
     }
 
     public void RemoveSession(string correlationId)
     {
-        if (_sessions.TryRemove(correlationId, out var session))
+        var entry = _sessions.FirstOrDefault(kvp => kvp.Value.CorrelationId == correlationId);
+        if (entry.Key != null && _sessions.TryRemove(entry.Key, out var session))
         {
             _logger.LogInformation("Removing call session for correlation {CorrelationId}", correlationId);
             session.Status = CallStatus.Completed;
@@ -92,12 +107,4 @@ public class CallSessionManager
     }
 
     public int ActiveSessionCount => _sessions.Count;
-
-    public CallSession? GetLatestUnboundSession()
-    {
-        return _sessions.Values
-            .Where(s => s.Status == CallStatus.Active && s.VoiceLiveSession == null)
-            .OrderByDescending(s => s.StartTime)
-            .FirstOrDefault();
-    }
 }
