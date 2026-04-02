@@ -22,27 +22,6 @@ hooks:
         $settings | ConvertTo-Json -Depth 3 | Set-Content -Path "appsettings.Development.json" -Encoding UTF8
         Write-Host "appsettings.Development.json created successfully"
         Write-Host "NOTE: Set DevTunnelUri to your dev tunnel URL before running locally"
-
-        Write-Host "Configuring EventGrid subscription for IncomingCall events..."
-        $acsResourceId = az communication show --name $env:ACS_RESOURCE_NAME --resource-group $env:ACS_RESOURCE_GROUP --query "id" -o tsv
-        $webhookUrl = "$env:SERVICE_WEB_URI/api/incomingCall"
-        $subName = "incoming-call"
-        $body = @{
-          properties = @{
-            destination = @{
-              endpointType = "WebHook"
-              properties = @{ endpointUrl = $webhookUrl }
-            }
-            filter = @{
-              includedEventTypes = @("Microsoft.Communication.IncomingCall")
-            }
-          }
-        } | ConvertTo-Json -Depth 5 -Compress
-        $tmpFile = [System.IO.Path]::GetTempFileName()
-        $body | Out-File -FilePath $tmpFile -Encoding utf8 -NoNewline
-        az rest --method PUT --uri "https://management.azure.com${acsResourceId}/providers/Microsoft.EventGrid/eventSubscriptions/${subName}?api-version=2024-06-01-preview" --body "@$tmpFile" --headers "Content-Type=application/json"
-        Remove-Item $tmpFile -ErrorAction SilentlyContinue
-        Write-Host "EventGrid subscription '$subName' configured to $webhookUrl"
     posix:
       shell: bash
       run: |
@@ -66,6 +45,34 @@ hooks:
         echo "appsettings.Development.json created successfully"
         echo "NOTE: Set DevTunnelUri to your dev tunnel URL before running locally"
 
+  # Runs after every 'azd deploy' and 'azd up' — ensures EventGrid always points to this environment
+  postdeploy:
+    windows:
+      shell: pwsh
+      run: |
+        Write-Host "Configuring EventGrid subscription for IncomingCall events..."
+        $acsResourceId = az communication show --name $env:ACS_RESOURCE_NAME --resource-group $env:ACS_RESOURCE_GROUP --query "id" -o tsv
+        $webhookUrl = "$env:SERVICE_WEB_URI/api/incomingCall"
+        $subName = "incoming-call"
+        $body = @{
+          properties = @{
+            destination = @{
+              endpointType = "WebHook"
+              properties = @{ endpointUrl = $webhookUrl }
+            }
+            filter = @{
+              includedEventTypes = @("Microsoft.Communication.IncomingCall")
+            }
+          }
+        } | ConvertTo-Json -Depth 5 -Compress
+        $tmpFile = [System.IO.Path]::GetTempFileName()
+        $body | Out-File -FilePath $tmpFile -Encoding utf8 -NoNewline
+        az rest --method PUT --uri "https://management.azure.com${acsResourceId}/providers/Microsoft.EventGrid/eventSubscriptions/${subName}?api-version=2024-06-01-preview" --body "@$tmpFile" --headers "Content-Type=application/json"
+        Remove-Item $tmpFile -ErrorAction SilentlyContinue
+        Write-Host "EventGrid subscription '$subName' configured to $webhookUrl"
+    posix:
+      shell: bash
+      run: |
         echo "Configuring EventGrid subscription for IncomingCall events..."
         ACS_RESOURCE_ID=$(az communication show --name "$ACS_RESOURCE_NAME" --resource-group "$ACS_RESOURCE_GROUP" --query "id" -o tsv)
         WEBHOOK_URL="$SERVICE_WEB_URI/api/incomingCall"

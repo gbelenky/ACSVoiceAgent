@@ -67,6 +67,7 @@ Server-side noise reduction is configured via `AudioNoiseReductionType`. Availab
 
 - [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0)
 - [Azure CLI](https://learn.microsoft.com/en-us/cli/azure/install-azure-cli) (for deployment and resource management)
+  - **communication** extension: `az extension add --name communication --yes`
 - [Azure Dev Tunnels CLI](https://learn.microsoft.com/en-us/azure/developer/dev-tunnels/get-started) (`devtunnel`) — for exposing your local server to ACS
 - An **Azure Communication Services** resource with a phone number configured for incoming calls
 - An **Azure AI Services** resource (kind: `AIServices`) with a `gpt-realtime-mini` model deployment
@@ -224,9 +225,9 @@ azd env set ACS_RESOURCE_GROUP "<your-acs-resource-group>"
 azd up
 ```
 
-This provisions (App Service, Log Analytics, App Insights, dashboard), deploys the app, and runs a postprovision hook that:
-1. Generates `appsettings.Development.json` for local development
-2. Creates/updates an **EventGrid subscription** on your ACS resource pointing to the new App Service URL
+This provisions (App Service, Log Analytics, App Insights, dashboard), deploys the app, and runs hooks that:
+1. Generates `appsettings.Development.json` for local development (postprovision — first run only)
+2. Creates/updates an **EventGrid subscription** on your ACS resource pointing to the App Service URL (postdeploy — every deploy)
 
 ### What Bicep provisions
 
@@ -238,7 +239,7 @@ This provisions (App Service, Log Analytics, App Insights, dashboard), deploys t
 | Portal Dashboard | Bicep |
 | **ACS** (with phone numbers) | **External** — pre-existing |
 | **AI Services** (with model deployment) | **External** — pre-existing |
-| **EventGrid subscription** | Postprovision hook (via `az rest`) |
+| **EventGrid subscription** | Postdeploy hook (via `az rest` — runs on every deploy) |
 
 ## Project Structure
 
