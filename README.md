@@ -91,30 +91,39 @@ devtunnel host
 
 Copy the tunnel URL (e.g. `https://abc123.devtunnels.ms`).
 
-### 3. Configure settings
+### 3. Configure local settings
 
-For local development, fill in your values in `appsettings.Development.json` (this file is loaded automatically when running in the `Development` environment and should **not** be committed to source control):
+All local settings (including secrets) go in `appsettings.Development.json`, which is **gitignored**. Copy the template and fill in your values:
+
+```bash
+cp appsettings.Development.template.json appsettings.Development.json
+```
+
+Then edit `appsettings.Development.json`:
 
 ```json
 {
-  "DevTunnelUri": "https://<your-tunnel-url>",
+  "DevTunnelUri": "https://<your-tunnel-url>.devtunnels.ms",
   "AcsConnectionString": "endpoint=https://<your-acs>.communication.azure.com/;accesskey=<key>",
   "AzureVoiceLiveApiKey": "<your-azure-ai-foundry-api-key>",
   "AzureVoiceLiveEndpoint": "https://<your-foundry-resource>.cognitiveservices.azure.com",
-  "VoiceLiveModel": "gpt-realtime-mini"
+  "VoiceLiveModel": "gpt-realtime-mini",
+  "TransferPhoneNumber": "+1234567890"
 }
 ```
 
 | Setting | Description |
 |---|---|
-| `DevTunnelUri` | Your dev tunnel URL (used as the callback and WebSocket base URL) |
+| `DevTunnelUri` | Your dev tunnel URL (callback and WebSocket base URL) |
 | `AcsConnectionString` | Connection string from your ACS resource (Azure Portal → Keys) |
 | `AzureVoiceLiveApiKey` | API key from your Azure AI Foundry resource |
-| `AzureVoiceLiveEndpoint` | Azure AI Foundry endpoint URL (the `.cognitiveservices.azure.com` endpoint) |
+| `AzureVoiceLiveEndpoint` | Azure AI Foundry endpoint URL (`.cognitiveservices.azure.com`) |
 | `VoiceLiveModel` | Model deployment name (default: `gpt-realtime-mini`) |
-| `TransferPhoneNumber` | Phone number for call transfers (e.g. `+4922147114711`) |
+| `TransferPhoneNumber` | Phone number for call transfers (E.164 format) |
 
-> **Tip**: You can also use [User Secrets](https://learn.microsoft.com/en-us/aspnet/core/security/app-secrets) to keep credentials out of config files entirely.
+> **Tip**: If you run `azd provision`, the postprovision hook automatically generates `appsettings.Development.json` with all values from the provisioned resources. You only need to fill in `DevTunnelUri` afterward.
+
+> **Foundry Agent branch**: The `foundry-agent` branch uses a different template with additional settings (`FoundryAgentName`, `FoundryProjectName`) and no `AzureVoiceLiveApiKey` (it uses Entra ID auth instead).
 
 ### 4. Customize the system prompt
 
@@ -156,14 +165,59 @@ info: Microsoft.Hosting.Lifetime[14]
    - *"Transfer me to a human agent"*
    - *"Thanks, goodbye"* (triggers automatic call termination)
 
+## Azure Deployment
+
+Deploy to Azure using the [Azure Developer CLI](https://learn.microsoft.com/en-us/azure/developer/azure-developer-cli/):
+
+### Prerequisites
+
+- An existing **ACS resource** with a phone number (ACS is not provisioned by Bicep — phone numbers require manual setup)
+- An existing **Azure AI Services** resource with a `gpt-realtime-mini` model deployment
+
+### First-time setup
+
+```bash
+azd init
+azd env set ACS_CONNECTION_STRING "endpoint=https://<your-acs>.communication.azure.com/;accesskey=<key>"
+azd env set AZURE_VOICE_LIVE_API_KEY "<your-ai-services-api-key>"
+azd env set AZURE_VOICE_LIVE_ENDPOINT "https://<your-ai-services>.cognitiveservices.azure.com"
+azd env set TRANSFER_PHONE_NUMBER "+1234567890"
+azd env set VOICE_LIVE_MODEL "gpt-realtime-mini"
+azd env set ACS_RESOURCE_NAME "<your-acs-resource-name>"
+azd env set ACS_RESOURCE_GROUP "<your-acs-resource-group>"
+```
+
+### Deploy
+
+```bash
+azd up
+```
+
+This provisions (App Service, Log Analytics, App Insights, dashboard), deploys the app, and runs a postprovision hook that:
+1. Generates `appsettings.Development.json` for local development
+2. Creates/updates an **EventGrid subscription** on your ACS resource pointing to the new App Service URL
+
+### What Bicep provisions
+
+| Resource | Provisioned by |
+|---|---|
+| Resource Group | Bicep |
+| App Service + Plan (B1, Linux, Always On) | Bicep |
+| Log Analytics + Application Insights | Bicep |
+| Portal Dashboard | Bicep |
+| **ACS** (with phone numbers) | **External** — pre-existing |
+| **AI Services** (with model deployment) | **External** — pre-existing |
+| **EventGrid subscription** | Postprovision hook (via `az rest`) |
+
 ## Project Structure
 
 ```
 ├── Program.cs                          # Minimal API host, endpoints, WebSocket middleware
 ├── Helper.cs                           # EventGrid JSON parsing helpers
 ├── ACSVoiceAgent.csproj                # .NET 8 project file
-├── appsettings.json                    # Configuration (defaults)
-├── appsettings.Development.json        # Local development configuration (add your secrets here)
+├── appsettings.json                    # Configuration (defaults, no secrets)
+├── appsettings.Development.json        # Local dev settings (gitignored — secrets + dev config)
+├── appsettings.Development.template.json # Template for appsettings.Development.json
 ├── Models/
 │   └── CallSession.cs                  # Call session model (state per active call)
 ├── Prompts/

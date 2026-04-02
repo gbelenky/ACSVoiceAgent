@@ -4,6 +4,72 @@ name: acs-voice-agent
 metadata:
   template: acs-voice-agent
 
+hooks:
+  postprovision:
+    windows:
+      shell: pwsh
+      run: |
+        Write-Host "Generating appsettings.Development.json from provisioned resources..."
+        $settings = @{
+          Logging = @{ LogLevel = @{ Default = "Information"; "Microsoft.AspNetCore" = "Warning" } }
+          DevTunnelUri = ""
+          AcsConnectionString = $env:ACS_CONNECTION_STRING
+          AzureVoiceLiveApiKey = $env:AZURE_VOICE_LIVE_API_KEY
+          AzureVoiceLiveEndpoint = $env:AZURE_VOICE_LIVE_ENDPOINT
+          VoiceLiveModel = $env:VOICE_LIVE_MODEL
+          TransferPhoneNumber = $env:TRANSFER_PHONE_NUMBER
+        }
+        $settings | ConvertTo-Json -Depth 3 | Set-Content -Path "appsettings.Development.json" -Encoding UTF8
+        Write-Host "appsettings.Development.json created successfully"
+        Write-Host "NOTE: Set DevTunnelUri to your dev tunnel URL before running locally"
+
+        Write-Host "Configuring EventGrid subscription for IncomingCall events..."
+        $acsResourceId = az communication show --name $env:ACS_RESOURCE_NAME --resource-group $env:ACS_RESOURCE_GROUP --query "id" -o tsv
+        $webhookUrl = "$env:SERVICE_WEB_URI/api/incomingCall"
+        $subName = "incoming-call-$env:AZURE_ENV_NAME"
+        $body = @{
+          properties = @{
+            destination = @{
+              endpointType = "WebHook"
+              properties = @{ endpointUrl = $webhookUrl }
+            }
+            filter = @{
+              includedEventTypes = @("Microsoft.Communication.IncomingCall")
+            }
+          }
+        } | ConvertTo-Json -Depth 5 -Compress
+        az rest --method PUT --uri "https://management.azure.com${acsResourceId}/providers/Microsoft.EventGrid/eventSubscriptions/${subName}?api-version=2024-06-01-preview" --body $body
+        Write-Host "EventGrid subscription '$subName' configured to $webhookUrl"
+    posix:
+      shell: bash
+      run: |
+        echo "Generating appsettings.Development.json from provisioned resources..."
+        cat > appsettings.Development.json << EOF
+        {
+          "Logging": {
+            "LogLevel": {
+              "Default": "Information",
+              "Microsoft.AspNetCore": "Warning"
+            }
+          },
+          "DevTunnelUri": "",
+          "AcsConnectionString": "$ACS_CONNECTION_STRING",
+          "AzureVoiceLiveApiKey": "$AZURE_VOICE_LIVE_API_KEY",
+          "AzureVoiceLiveEndpoint": "$AZURE_VOICE_LIVE_ENDPOINT",
+          "VoiceLiveModel": "$VOICE_LIVE_MODEL",
+          "TransferPhoneNumber": "$TRANSFER_PHONE_NUMBER"
+        }
+        EOF
+        echo "appsettings.Development.json created successfully"
+        echo "NOTE: Set DevTunnelUri to your dev tunnel URL before running locally"
+
+        echo "Configuring EventGrid subscription for IncomingCall events..."
+        ACS_RESOURCE_ID=$(az communication show --name "$ACS_RESOURCE_NAME" --resource-group "$ACS_RESOURCE_GROUP" --query "id" -o tsv)
+        WEBHOOK_URL="$SERVICE_WEB_URI/api/incomingCall"
+        SUB_NAME="incoming-call-$AZURE_ENV_NAME"
+        az rest --method PUT --uri "https://management.azure.com${ACS_RESOURCE_ID}/providers/Microsoft.EventGrid/eventSubscriptions/${SUB_NAME}?api-version=2024-06-01-preview" --body "{\"properties\":{\"destination\":{\"endpointType\":\"WebHook\",\"properties\":{\"endpointUrl\":\"${WEBHOOK_URL}\"}},\"filter\":{\"includedEventTypes\":[\"Microsoft.Communication.IncomingCall\"]}}}"
+        echo "EventGrid subscription '$SUB_NAME' configured to $WEBHOOK_URL"
+
 services:
   web:
     project: .

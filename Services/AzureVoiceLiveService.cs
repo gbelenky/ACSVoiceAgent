@@ -16,6 +16,7 @@ public class AzureVoiceLiveService
     private VoiceLiveSession? _session;
     private CallSession? _callSession;
     private CancellationTokenSource? _cts;
+    private bool _greetingSent;
 
     public AzureVoiceLiveService(
         AcsMediaStreamingHandler mediaStreaming,
@@ -202,7 +203,6 @@ public class AzureVoiceLiveService
         _logger.LogInformation("Connected to Voice Live successfully");
 
         _ = Task.Run(() => ReceiveEventsAsync(_cts.Token));
-        await _session.StartResponseAsync(_cts.Token);
     }
 
     private async Task ReceiveEventsAsync(CancellationToken cancellationToken)
@@ -237,7 +237,12 @@ public class AzureVoiceLiveService
                 break;
 
             case SessionUpdateSessionUpdated:
-                _logger.LogInformation("Voice Live session updated");
+                _logger.LogInformation("Voice Live session updated and ready");
+                if (!_greetingSent)
+                {
+                    _greetingSent = true;
+                    await SendProactiveGreetingAsync(cancellationToken);
+                }
                 break;
 
             case SessionUpdateResponseAudioDelta audioDelta:
@@ -280,6 +285,19 @@ public class AzureVoiceLiveService
             default:
                 _logger.LogDebug("Voice Live event: {EventType}", serverEvent.GetType().Name);
                 break;
+        }
+    }
+
+    private async Task SendProactiveGreetingAsync(CancellationToken cancellationToken)
+    {
+        _logger.LogInformation("Sending proactive greeting request");
+        try
+        {
+            await _session!.StartResponseAsync(cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to send proactive greeting");
         }
     }
 

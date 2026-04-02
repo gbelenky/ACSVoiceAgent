@@ -174,6 +174,14 @@ async Task HandleWebSocket(HttpContext context, string contextId)
         return;
     }
 
+    // Only the first WebSocket connection gets to bind — reject duplicates
+    if (session.AcsWebSocket != null)
+    {
+        logger.LogWarning("Duplicate WebSocket for context {ContextId}, rejecting", contextId);
+        await webSocket.CloseAsync(WebSocketCloseStatus.NormalClosure, "Duplicate", CancellationToken.None);
+        return;
+    }
+
     session.AcsWebSocket = webSocket;
     logger.LogInformation("Session bound: CallConnectionId={CallConnectionId}, CallerId={CallerId}",
         session.CallConnectionId, session.CallerId);

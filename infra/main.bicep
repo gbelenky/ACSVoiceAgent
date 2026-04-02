@@ -13,18 +13,19 @@ param location string
 @secure()
 param acsConnectionString string
 
-@description('Azure AI Voice Live API key (from existing Azure AI Foundry resource)')
+@description('Azure AI Voice Live API key (from existing AI Services resource)')
 @secure()
 param azureVoiceLiveApiKey string
 
-@description('Azure AI Voice Live endpoint (e.g. https://<name>.cognitiveservices.azure.com)')
+@description('Azure AI Voice Live endpoint (from existing AI Services resource)')
 param azureVoiceLiveEndpoint string
 
 @description('Voice Live model deployment name')
 param voiceLiveModel string = 'gpt-realtime-mini'
 
 @description('Phone number for call transfers (E.164 format)')
-param transferPhoneNumber string = '+4922180102503'
+@secure()
+param transferPhoneNumber string
 
 var abbrs = loadJsonContent('./abbreviations.json')
 var resourceToken = toLower(uniqueString(subscription().id, environmentName, location))

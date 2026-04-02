@@ -9,7 +9,7 @@ obj/
 *.cache
 *.log
 
-## App settings with secrets
+## Local dev settings (secrets + dev-specific config — never commit)
 appsettings.Development.json
 
 ## Confidential customer documents
