@@ -21,6 +21,7 @@ public class AzureVoiceLiveService
     private VoiceLiveSession? _session;
     private CallSession? _callSession;
     private CancellationTokenSource? _cts;
+    private CancellationTokenSource? _holdAudioCts;
     private bool _greetingSent;
 
     public AzureVoiceLiveService(
@@ -39,6 +40,10 @@ public class AzureVoiceLiveService
     {
         _callSession = callSession;
         _cts = callSession.Cts ?? new CancellationTokenSource();
+
+        // Play hold audio while Voice Live connects (6-14s warm, 30s+ cold)
+        _holdAudioCts = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token);
+        _ = PlayHoldAudioAsync(_holdAudioCts.Token);
 
         await CreateSessionAsync();
     }
@@ -91,6 +96,74 @@ public class AzureVoiceLiveService
         _logger.LogInformation("Connected to Voice Live with Foundry Agent successfully");
 
         _ = Task.Run(() => ReceiveEventsAsync(_cts.Token));
+    }
+
+    private async Task PlayHoldAudioAsync(CancellationToken cancellationToken)
+    {
+        _logger.LogInformation("Playing hold audio while connecting to Voice Live");
+        try
+        {
+            // Ring-back tone: 440Hz, 1s on / 3s off, PCM 16-bit 24kHz mono
+            const int sampleRate = 24000;
+            const double frequency = 440.0;
+            const double amplitude = 1000.0; // Gentle volume (max ~32767)
+            const int toneMs = 1000;
+            const int silenceMs = 3000;
+
+            var toneSamples = sampleRate * toneMs / 1000;
+            var toneBytes = new byte[toneSamples * 2]; // 16-bit = 2 bytes/sample
+            for (int i = 0; i < toneSamples; i++)
+            {
+                var sample = (short)(amplitude * Math.Sin(2 * Math.PI * frequency * i / sampleRate));
+                toneBytes[i * 2] = (byte)(sample & 0xFF);
+                toneBytes[i * 2 + 1] = (byte)((sample >> 8) & 0xFF);
+            }
+
+            var silenceBytes = new byte[sampleRate * silenceMs / 1000 * 2];
+
+            // Send in ~100ms chunks to avoid large frames
+            const int chunkSize = 24000 * 2 / 10; // 100ms of audio = 4800 bytes
+
+            while (!cancellationToken.IsCancellationRequested)
+            {
+                await SendChunkedAudioAsync(toneBytes, chunkSize, cancellationToken);
+                await SendChunkedAudioAsync(silenceBytes, chunkSize, cancellationToken);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogInformation("Hold audio stopped");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Hold audio playback error");
+        }
+    }
+
+    private async Task SendChunkedAudioAsync(byte[] audio, int chunkSize, CancellationToken cancellationToken)
+    {
+        for (int offset = 0; offset < audio.Length; offset += chunkSize)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var length = Math.Min(chunkSize, audio.Length - offset);
+            var chunk = new byte[length];
+            Buffer.BlockCopy(audio, offset, chunk, 0, length);
+            var outbound = OutStreamingData.GetAudioDataForOutbound(chunk);
+            await _mediaStreaming.SendMessageAsync(outbound);
+            // Pace sending to roughly real-time (100ms per chunk)
+            await Task.Delay(95, cancellationToken);
+        }
+    }
+
+    private void StopHoldAudio()
+    {
+        if (_holdAudioCts != null && !_holdAudioCts.IsCancellationRequested)
+        {
+            _logger.LogInformation("Stopping hold audio");
+            _holdAudioCts.Cancel();
+            _holdAudioCts.Dispose();
+            _holdAudioCts = null;
+        }
     }
 
     private async Task SendProactiveGreetingAsync(CancellationToken cancellationToken)
@@ -156,6 +229,7 @@ public class AzureVoiceLiveService
 
             case SessionUpdateSessionUpdated:
                 _logger.LogInformation("Voice Live session updated and ready");
+                StopHoldAudio();
                 if (!_greetingSent)
                 {
                     _greetingSent = true;
