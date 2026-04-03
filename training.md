@@ -378,14 +378,14 @@ These filters work at the platform level — no code changes required. The model
 
    | Field | Value |
    |---|---|
-   | **Country** | United States (or your preferred country) |
-   | **Number type** | Toll-free (or Local, depending on availability) |
+   | **Country** | United Kingdom (recommended) |
+   | **Number type** | Geographic (e.g. London +44 20) or Toll-Free (0800) |
    | **Calling** | Make and receive calls |
    | **SMS** | None needed (optional) |
 
 4. Select an available number and confirm purchase
 
-> **Note**: Phone number availability varies by region. If no numbers are available in your preferred country, try United States toll-free numbers — they have the highest availability.
+> **Recommended: UK numbers** — United Kingdom geographic and toll-free numbers are widely available in ACS, support both inbound and outbound calling, and work well for training purposes. If UK numbers are not available in your region, try United States toll-free numbers as a fallback.
 
 ### 3.3 Get the ACS Connection String
 
@@ -472,7 +472,8 @@ ACSVoiceAgent/
 |   +-- CallSessionManager.cs           # In-process session tracking
 |-- infra/                              # Bicep IaC for Azure deployment
 |-- appsettings.json                    # Configuration (defaults)
-|-- appsettings.Development.json        # Local dev config (secrets -- not in source control)
+|-- appsettings.Development.template.json # Template for local dev config (copy and fill in)
+|-- appsettings.Development.json        # Local dev config (gitignored — not committed)
 |-- azure.yaml                          # Azure Developer CLI project definition
 +-- ACSVoiceAgent.csproj                # .NET 8 project file
 ```
@@ -633,7 +634,7 @@ All tools use **in-memory mock data** (static dictionaries). In a real applicati
 
 | Identifier | Name | Phone | Tier | Balance |
 |---|---|---|---|---|
-| `12345` | Genady Belenky | +14255551234 | Gold | $150.00 |
+| `12345` | Sarah Connor | +14255551234 | Gold | $150.00 |
 | `67890` | John Smith | +14255555678 | Silver | $45.50 |
 
 Lookup works by customer ID (`12345`) or phone number (`+14255551234`).
@@ -742,15 +743,22 @@ Inspect network activity: https://abc123xyz.devtunnels.ms:4040
 
 ### 5.2 Configure Application Settings
 
-Create `appsettings.Development.json` in the project root (this file is in `.gitignore` and won't be committed):
+Copy the template to create your local settings file (this file is in `.gitignore` and won't be committed):
+
+```bash
+cp appsettings.Development.template.json appsettings.Development.json
+```
+
+Then fill in your values:
 
 ```json
 {
   "DevTunnelUri": "https://<your-tunnel-url>.devtunnels.ms",
   "AcsConnectionString": "endpoint=https://<your-acs>.communication.azure.com/;accesskey=<key>",
-  "AzureVoiceLiveApiKey": "<your-api-key-from-lab-2>",
-  "AzureVoiceLiveEndpoint": "https://<your-ai-resource>.cognitiveservices.azure.com",
-  "VoiceLiveModel": "gpt-realtime-mini"
+  "VoiceLiveApiKey": "<your-api-key-from-lab-2>",
+  "VoiceLiveEndpoint": "https://<your-ai-resource>.cognitiveservices.azure.com",
+  "VoiceLiveModel": "gpt-realtime-mini",
+  "TransferPhoneNumber": "+441234567890"
 }
 ```
 
@@ -760,9 +768,10 @@ Fill in the values from Labs 2 and 3:
 |---|---|
 | `DevTunnelUri` | Your dev tunnel URL from step 5.1 |
 | `AcsConnectionString` | ACS resource → Keys (Lab 3) |
-| `AzureVoiceLiveApiKey` | AI Foundry resource → Keys and Endpoint (Lab 2) |
-| `AzureVoiceLiveEndpoint` | AI Foundry resource → Overview → Endpoint (Lab 2) |
+| `VoiceLiveApiKey` | AI Foundry resource → Keys and Endpoint (Lab 2) |
+| `VoiceLiveEndpoint` | AI Foundry resource → Overview → Endpoint (Lab 2) |
 | `VoiceLiveModel` | Your model deployment name: `gpt-realtime-mini` (Lab 2) |
+| `TransferPhoneNumber` | Phone number for call transfers (E.164 format) |
 
 ### 5.3 Register the EventGrid Webhook
 
@@ -877,7 +886,7 @@ info: Program[0] Call disconnected. CorrelationId: ...
 |---|---|---|
 | No logs when calling | EventGrid webhook not registered or wrong URL | Re-check the endpoint URL includes `/api/incomingCall` |
 | "Incoming Call event received" but no answer | ACS connection string wrong | Verify `AcsConnectionString` in config |
-| Call answers but no audio/greeting | Voice Live connection failed | Check `AzureVoiceLiveEndpoint` and `AzureVoiceLiveApiKey` |
+| Call answers but no audio/greeting | Voice Live connection failed | Check `VoiceLiveEndpoint` and `VoiceLiveApiKey` |
 | "No call session found after 30s" | Race condition (rare) | Retry the call — the Channel handoff may have timed out |
 | Tunnel errors | Dev tunnel not running | Restart `devtunnel host` and update the config URL |
 
@@ -1389,12 +1398,11 @@ When prompted, select:
 Now set the required environment variables:
 
 ```bash
-azd env set AZURE_LOCATION westeurope
 azd env set ACS_CONNECTION_STRING "endpoint=https://<your-acs>.communication.azure.com/;accesskey=<key>"
-azd env set AZURE_VOICE_LIVE_API_KEY "<your-api-key>"
-azd env set AZURE_VOICE_LIVE_ENDPOINT "https://<your-resource>.cognitiveservices.azure.com"
+azd env set VOICE_LIVE_API_KEY "<your-api-key>"
+azd env set VOICE_LIVE_ENDPOINT "https://<your-resource>.cognitiveservices.azure.com"
 azd env set VOICE_LIVE_MODEL "gpt-realtime-mini"
-azd env set TRANSFER_PHONE_NUMBER "+1234567890"
+azd env set TRANSFER_PHONE_NUMBER "+441234567890"
 ```
 
 > Replace the placeholder values with your actual values from Labs 2 and 3.
@@ -1427,15 +1435,20 @@ You should see: **"ACS Voice Agent with Voice Live SDK"**
 
 ### 8.6 Update the EventGrid Webhook
 
-Now switch your ACS EventGrid subscription from the dev tunnel to the production URL:
+Now that your app is deployed, you need to update the EventGrid subscription to point to your App Service URL instead of the dev tunnel:
 
-1. Go to Azure Portal → ACS resource → **Events**
-2. Click on your existing event subscription
-3. Change the endpoint URL to:
+1. Go to Azure Portal → your **ACS resource** → **Events**
+2. Click the existing `incoming-call-webhook` subscription (created in Lab 5)
+3. Click **Edit** and update the **Endpoint** to:
    ```
    https://app-xxxxx.azurewebsites.net/api/incomingCall
    ```
-4. Save
+   (Replace `app-xxxxx` with your actual App Service hostname from step 8.5)
+4. Click **Save**
+
+EventGrid will re-validate the endpoint against your deployed app. Make sure the deployment completed successfully before updating.
+
+> **Tip**: You can also delete the old subscription and create a new one if editing doesn't work. Use the same settings as Lab 5.3 but with the App Service URL.
 
 ### 8.7 Test in Production
 
