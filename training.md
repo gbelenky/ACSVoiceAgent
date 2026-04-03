@@ -1,6 +1,8 @@
-# Building a Real-Time AI Voice Agent with Azure
+# Building a Real-Time AI Voice Agent with Azure (Foundry Agent)
 
 **One-Day Training Lab — Step by Step**
+
+> **Branch**: `foundry-agent` — This training uses **Azure AI Foundry Agents** to manage tools, instructions, and voice configuration in the cloud. The agent is created and versioned via the AgentManager CLI tool. The C# application only handles the audio bridge and client-side tool dispatch.
 
 ---
 
@@ -10,8 +12,8 @@
 |---|---|
 | **Duration** | Full day (~7 hours with breaks) |
 | **Level** | Intermediate — assumes Azure Portal familiarity and basic C# knowledge |
-| **What you'll build** | A production-grade AI voice agent that answers phone calls, holds natural conversations, and executes business logic in real time |
-| **What you'll learn** | Generative AI fundamentals, Azure AI Foundry, GPT Realtime API, Voice Live SDK, ACS telephony, function calling, and cloud deployment with `azd` |
+| **What you'll build** | A production-grade AI voice agent backed by a Foundry Agent that answers phone calls, holds natural conversations, and executes business logic in real time |
+| **What you'll learn** | Generative AI fundamentals, Azure AI Foundry Agents, Voice Live SDK with agent mode, ACS telephony, function calling, file search (RAG), and cloud deployment with `azd` |
 
 ### Agenda
 
@@ -42,11 +44,13 @@
 - 1.6 The Voice Live API
 - 1.7 Key Takeaways
 
-**Lab 2: Azure AI Foundry — Create Resources and Deploy a Realtime Model**
-- 2.1 Create an Azure AI Foundry Resource
-- 2.2 Deploy the Realtime Model
-- 2.3 Record Your Credentials
-- 2.4 Verify the Deployment
+**Lab 2: Azure AI Foundry — Create a Project, Deploy Models, and Set Up Authentication**
+- 2.1 Create an Azure AI Services Resource
+- 2.2 Create a Foundry Project
+- 2.3 Deploy the Chat Model (gpt-4.1-mini)
+- 2.4 Set Up Entra ID Authentication (RBAC)
+- 2.5 Understanding Content Safety Filters
+- 2.6 Checkpoint
 
 **Lab 3: Azure Communication Services — Phone Numbers and Direct Routing**
 - 3.1 Create an ACS Resource
@@ -60,18 +64,18 @@
 - 4.2 Solution Structure
 - 4.3 Program.cs — The Application Host
 - 4.4 AcsMediaStreamingHandler — ACS WebSocket Bridge
-- 4.5 AzureVoiceLiveService — Voice Live Session Management
-- 4.6 VoiceLiveSessionOptions — Session Configuration
-- 4.7 AgentFunctions — Tool Implementations
+- 4.5 AzureVoiceLiveService — Voice Live with Foundry Agent Mode
+- 4.6 AgentManager — Creating and Versioning the Foundry Agent
+- 4.7 AgentFunctions — Tool Implementations (Client-Side)
 - 4.8 CallSession and CallSessionManager — State Management
 - 4.9 Key Takeaways
 
 **Lab 5: Local Development — Dev Tunnels, Configuration, and First Call**
-- 5.1 Install Dev Tunnels
-- 5.2 Create and Start a Dev Tunnel
+- 5.1 Create and Start a Dev Tunnel
+- 5.2 Create the Foundry Agent (AgentManager)
 - 5.3 Configure appsettings.Development.json
-- 5.4 Build and Run
-- 5.5 Update the EventGrid Webhook
+- 5.4 Register the EventGrid Webhook
+- 5.5 Build and Run
 - 5.6 Make Your First Call
 - 5.7 Key Takeaways
 
@@ -85,21 +89,21 @@
 - 6.7 Exercise: Change the Voice
 
 **Lab 7: Function Calling — Add a New Tool to the Voice Agent**
-- 7.1 How Function Calling Works in Voice Live
+- 7.1 How Function Calling Works with Foundry Agents
 - 7.2 Exercise: Add a `check_weather` Tool
-- 7.3 The Tool Dispatch Pattern
+- 7.3 The Three-File Pattern (AgentManager + AgentFunctions + Dispatch)
 - 7.4 Real vs. Simulated Tools — The Transfer Call Example
 - 7.5 Key Takeaways
 
 **Lab 8: Deploy to Azure with `azd`**
 - 8.1 What is the Azure Developer CLI?
-- 8.2 The azure.yaml File
-- 8.3 The Bicep Infrastructure
+- 8.2 The azure.yaml File and Hooks
+- 8.3 The Bicep Infrastructure (App Service + AI Services + Foundry Project)
 - 8.4 Authenticate with Azure
 - 8.5 Initialize the Project
-- 8.6 Provision Infrastructure
-- 8.7 Deploy the Application
-- 8.8 Verify the Deployment
+- 8.6 Provision and Deploy
+- 8.7 Verify the Deployment
+- 8.8 Update the EventGrid Webhook
 - 8.9 Key Takeaways
 
 **Lab 9: Production Considerations — Scaling, Monitoring, and Content Safety**
@@ -184,7 +188,7 @@ The **GPT Realtime API** is the family of models that process audio directly:
 | `gpt-realtime` | Higher reasoning quality, better at complex tasks | Input: $32 / Output: $64 |
 | `gpt-realtime-1.5` | Latest generation, improved quality and features | Input: $32 / Output: $64 |
 
-> **For this training, we use `gpt-realtime-mini`** — it provides excellent quality at lower cost and is the recommended starting point.
+> **For this training, we use `gpt-4.1-mini`** as the Foundry Agent's reasoning model, with Voice Live handling the realtime audio processing behind the scenes.
 
 ### 1.4 What is the Azure AI Voice Live Service?
 
@@ -241,7 +245,7 @@ Here's the complete architecture of what we're building:
 |          |     |                 |      |       App Service            |      |   Azure AI Foundry   |
 |  Caller  |---->|  ACS            |----> |                              |----> |                      |
 |  (Phone) |<----|  (PSTN Gateway) |<---- |  ASP.NET Core Minimal API    |<---- |  Voice Live Service  |
-|          |     |                 |      |                              |      |  (gpt-realtime-mini) |
+|          |     |                 |      |                              |      |  Foundry Agent       |
 +----------+     +-----------------+      |  +---------------------+     |      |                      |
                   SIP/RTP                 |  |  AcsMediaStreaming   |    |      |  +----------------+  |
                   <------------>          |  |  Handler             |    |      |  | Noise Reduction|  |
@@ -277,12 +281,14 @@ Here's the complete architecture of what we're building:
 
 ---
 
-## Lab 2: Azure AI Foundry — Create Resources and Deploy a Realtime Model
+## Lab 2: Azure AI Foundry — Create a Project, Deploy Models, and Set Up Authentication
 
 **Duration**: 45 minutes  
-**Objective**: Create an Azure AI Foundry resource and deploy the `gpt-realtime-mini` model.
+**Objective**: Create an Azure AI Foundry project, deploy the chat model used by the Foundry Agent, and configure Entra ID authentication.
 
-### 2.1 Create an Azure AI Foundry Resource
+> **Key difference from the main branch**: The Foundry Agent approach uses a cloud-managed agent that holds the tools, instructions, and voice configuration. Authentication uses Entra ID (no API keys). The agent uses `gpt-4.1-mini` as its reasoning model, while Voice Live handles the realtime audio processing behind the scenes.
+
+### 2.1 Create an Azure AI Services Resource
 
 1. Go to the [Azure Portal](https://portal.azure.com)
 2. Click **Create a resource** → search for **Azure AI Services** (multi-service account)
@@ -298,39 +304,66 @@ Here's the complete architecture of what we're building:
 
 4. Review and **Create**
 
-> **Important**: The region must support GPT Realtime models. Check the [model availability table](https://learn.microsoft.com/en-us/azure/ai-services/openai/concepts/models#model-summary-table-and-region-availability) if you're unsure. Common regions: `West Europe`, `East US 2`, `Sweden Central`.
+> **Important**: The region must support both GPT Realtime and GPT-4.1 models. Check the [model availability table](https://learn.microsoft.com/en-us/azure/ai-services/openai/concepts/models#model-summary-table-and-region-availability) if you're unsure. Common regions: `West Europe`, `East US 2`, `Sweden Central`.
 
-### 2.2 Deploy the gpt-realtime-mini Model
+### 2.2 Create a Foundry Project
 
-1. Once your resource is created, go to **Azure AI Foundry Portal**: [ai.azure.com](https://ai.azure.com)
-2. Select your subscription and resource
-3. Navigate to **Deployments** → **+ Create deployment**
+A Foundry Project is a workspace within Azure AI Foundry that organizes your agents, deployments, and data.
+
+1. Go to **Azure AI Foundry Portal**: [ai.azure.com](https://ai.azure.com)
+2. Select your subscription and AI Services resource
+3. Click **+ New project**
 4. Configure:
 
    | Field | Value |
    |---|---|
-   | **Model** | `gpt-realtime-mini` |
-   | **Model version** | `2025-12-15` |
-   | **Deployment name** | `gpt-realtime-mini` |
+   | **Project name** | `voiceagent-project` |
+   | **Hub** | Select or create a hub associated with your AI Services resource |
+
+5. Click **Create**
+
+After creation, note the **Project endpoint** — it has the format:
+```
+https://<ai-services-name>.services.ai.azure.com/api/projects/<project-name>
+```
+
+> **Write this down** — you'll need it in Lab 5.
+
+### 2.3 Deploy the Chat Model (gpt-4.1-mini)
+
+The Foundry Agent uses `gpt-4.1-mini` as its reasoning model. Voice Live handles the audio-to-text and text-to-audio conversion using the realtime model behind the scenes.
+
+1. In the Foundry Portal, navigate to your project
+2. Go to **Deployments** → **+ Create deployment**
+3. Configure:
+
+   | Field | Value |
+   |---|---|
+   | **Model** | `gpt-4.1-mini` |
+   | **Deployment name** | `gpt-4.1-mini` |
    | **Deployment type** | Global Standard |
 
-5. Click **Deploy**
+4. Click **Deploy**
 
-### 2.3 Gather Your Connection Details
+> **Why gpt-4.1-mini and not gpt-realtime-mini?** In the Foundry Agent approach, Voice Live manages the realtime audio session. The Foundry Agent definition specifies `gpt-4.1-mini` as the reasoning model, which handles tool selection and response generation. Voice Live bridges between the realtime audio stream and the agent's reasoning model.
 
-After deployment, collect these values — you'll need them later:
+### 2.4 Set Up Entra ID Authentication (RBAC)
 
-| Value | Where to find it |
-|---|---|
-| **Endpoint** | Resource → Overview → Endpoint (e.g., `https://ai-voiceagent-gb.cognitiveservices.azure.com`) |
-| **API Key** | Resource → Keys and Endpoint → Key 1 |
-| **Model deployment name** | The name you chose above (e.g., `gpt-realtime-mini`) |
+Unlike the main branch (which uses API keys), the Foundry Agent requires **Entra ID authentication** (`DefaultAzureCredential`). You need the **Cognitive Services User** role on the AI Services resource.
 
-> **Write these down** or keep the portal tab open — you'll configure them in Lab 5.
+1. Go to Azure Portal → your **AI Services resource** → **Access control (IAM)**
+2. Click **+ Add** → **Add role assignment**
+3. Select role: **Cognitive Services User**
+4. Assign to: **User** → select your Azure account
+5. Click **Review + assign**
 
-### 2.4 Understanding Content Safety Filters
+For local development, `DefaultAzureCredential` will use your `az login` session. For production, the App Service's Managed Identity will be used (configured automatically by Bicep in Lab 8).
 
-Your Azure AI Foundry resource comes with **built-in content safety filters** that are active by default for all Realtime audio models:
+> **Verify**: Run `az account show` to confirm you're logged in with the correct account.
+
+### 2.5 Understanding Content Safety Filters
+
+Your Azure AI Foundry resource comes with **built-in content safety filters** that are active by default:
 
 | Category | Default Threshold | What it filters |
 |---|---|---|
@@ -341,13 +374,15 @@ Your Azure AI Foundry resource comes with **built-in content safety filters** th
 | Jailbreak | On | Prompt injection attempts |
 | Protected Material | On | Copyrighted text reproduction |
 
-These filters work at the platform level — no code changes required. The model will refuse to generate harmful content regardless of what the caller asks.
+These filters work at the platform level — no code changes required.
 
 ### Lab 2 Checkpoint
 
 - [ ] Azure AI Services resource created
-- [ ] `gpt-realtime-mini` model deployed
-- [ ] Endpoint URL and API key noted
+- [ ] Foundry Project created and project endpoint noted
+- [ ] `gpt-4.1-mini` model deployed
+- [ ] Cognitive Services User role assigned to your account
+- [ ] `az login` verified
 
 ---
 
@@ -378,14 +413,14 @@ These filters work at the platform level — no code changes required. The model
 
    | Field | Value |
    |---|---|
-   | **Country** | United States (or your preferred country) |
-   | **Number type** | Toll-free (or Local, depending on availability) |
+   | **Country** | United Kingdom (recommended) |
+   | **Number type** | Geographic (e.g. London +44 20) or Toll-Free (0800) |
    | **Calling** | Make and receive calls |
    | **SMS** | None needed (optional) |
 
 4. Select an available number and confirm purchase
 
-> **Note**: Phone number availability varies by region. If no numbers are available in your preferred country, try United States toll-free numbers — they have the highest availability.
+> **Recommended: UK numbers** — United Kingdom geographic and toll-free numbers are widely available in ACS, support both inbound and outbound calling, and work well for training purposes. If UK numbers are not available in your region, try United States toll-free numbers as a fallback.
 
 ### 3.3 Get the ACS Connection String
 
@@ -450,32 +485,41 @@ We'll complete this configuration in Lab 5 after our dev tunnel is ready. For no
 ### 4.1 Clone the Repository
 
 ```bash
-git clone https://github.com/gbelenky/ACSVoiceAgent.git
-cd ACSVoiceAgent
+git clone -b foundry-agent https://github.com/gbelenky/ACSVoiceAgent.git ACSVoiceAgent-foundry
+cd ACSVoiceAgent-foundry
 dotnet restore
 ```
 
 ### 4.2 Project Structure
 
 ```
-ACSVoiceAgent/
+ACSVoiceAgent-foundry/
 |-- Program.cs                          # Entry point -- endpoints, DI, WebSocket middleware
 |-- Helper.cs                           # EventGrid JSON parsing utilities
 |-- Models/
-|   +-- CallSession.cs                  # Per-call state model
+|   +-- CallSession.cs                  # Per-call state model (includes transcript tracking)
 |-- Prompts/
-|   +-- system-prompt.txt               # Agent personality and rules (plain text)
+|   +-- system-prompt.txt               # Agent personality and rules (loaded by AgentManager)
 |-- Services/
 |   |-- AcsMediaStreamingHandler.cs     # ACS WebSocket send/receive
-|   |-- AgentFunctions.cs               # Business logic tools (simulated data)
-|   |-- AzureVoiceLiveService.cs        # Voice Live session management + tool dispatch
+|   |-- AgentFunctions.cs               # Business logic tools (simulated data, client-side)
+|   |-- AzureVoiceLiveService.cs        # Voice Live session with Foundry Agent mode
 |   +-- CallSessionManager.cs           # In-process session tracking
-|-- infra/                              # Bicep IaC for Azure deployment
+|-- scripts/
+|   +-- AgentManager/                   # CLI tool to create/delete the Foundry Agent
+|       |-- Program.cs                  # Agent lifecycle management
+|       +-- AgentManager.csproj
+|-- docs/
+|   +-- product-catalog.md             # Product catalog document (uploaded to vector store)
+|-- infra/                              # Bicep IaC (App Service + AI Services + Foundry Project)
 |-- appsettings.json                    # Configuration (defaults)
-|-- appsettings.Development.json        # Local dev config (secrets -- not in source control)
-|-- azure.yaml                          # Azure Developer CLI project definition
+|-- appsettings.Development.template.json # Template for local dev config
+|-- appsettings.Development.json        # Local dev config (gitignored)
+|-- azure.yaml                          # Azure Developer CLI project definition + hooks
 +-- ACSVoiceAgent.csproj                # .NET 8 project file
 ```
+
+> **Key differences from the main branch**: The `scripts/AgentManager` directory contains a CLI tool that creates the Foundry Agent with all tool definitions and a vector store for product catalog search. The `docs/` directory holds documents uploaded to the vector store. Tool definitions live in AgentManager, not in the Voice Live service code.
 
 ### 4.3 NuGet Packages
 
@@ -483,11 +527,13 @@ Open `ACSVoiceAgent.csproj` and review the dependencies:
 
 | Package | Version | Purpose |
 |---|---|---|
-| `Azure.AI.VoiceLive` | 1.0.0 | Voice Live SDK — manages the connection to GPT Realtime via Azure AI Foundry |
+| `Azure.AI.VoiceLive` | 1.1.0-beta.3 | Voice Live SDK — supports Foundry Agent mode (`SessionTarget.FromAgent`) |
 | `Azure.Communication.CallAutomation` | 1.5.1 | ACS Call Automation — answer, transfer, hang up calls programmatically |
 | `Azure.Messaging.EventGrid` | 5.0.0 | Parse EventGrid events (IncomingCall triggers) |
-| `Azure.Identity` | 1.19.0 | Azure authentication (for production with Managed Identity) |
+| `Azure.Identity` | 1.19.0 | Entra ID authentication (`DefaultAzureCredential`) — **required** for Foundry Agent mode |
 | `Microsoft.ApplicationInsights.AspNetCore` | 2.22.0 | Monitoring and telemetry |
+
+> **Note**: The Foundry Agent branch uses `Azure.AI.VoiceLive` 1.1.0-beta.3 (not 1.0.0 like the main branch). This version adds `SessionTarget.FromAgent` and `AgentSessionConfig` for connecting to a Foundry-managed agent.
 
 ### 4.4 Program.cs — Endpoints and Wiring
 
@@ -555,45 +601,63 @@ Open `Services/CallSessionManager.cs`.
 
 This gives zero-latency, non-blocking handoff without polling.
 
-### 4.6 AzureVoiceLiveService — The Core Bridge
+### 4.6 AzureVoiceLiveService — Voice Live with Foundry Agent Mode
 
-Open `Services/AzureVoiceLiveService.cs`. This is the most important file.
+Open `Services/AzureVoiceLiveService.cs`. This is the most important file — but it's **simpler** than the main branch because the Foundry Agent handles tools, instructions, and voice config.
 
-**CreateSessionAsync()** — Sets up the Voice Live connection:
+**CreateSessionAsync()** — Sets up the Voice Live connection using a Foundry Agent:
 
-1. Reads config (endpoint, API key, model)
-2. Loads the system prompt from `Prompts/system-prompt.txt`
-3. Creates `VoiceLiveSessionOptions` with:
-   - Model, instructions, voice (`en-US-Ava:DragonHDLatestNeural`)
-   - Audio format (PCM 16-bit), noise reduction, echo cancellation
-   - VAD settings (threshold, prefix padding, silence duration)
-   - **8 tool definitions** (`VoiceLiveFunctionDefinition`)
-4. Connects: `client.StartSessionAsync(sessionOptions)`
-5. Starts background event loop: `Task.Run(ReceiveEventsAsync)`
-6. Triggers the agent's greeting: `session.StartResponseAsync()`
-
-**ReceiveEventsAsync()** — Processes server events:
+1. Reads config: `VoiceLiveEndpoint`, `FoundryAgentName`, `FoundryProjectName`, `FoundryAgentVersion`
+2. Creates `AgentSessionConfig` with agent name and project name
+3. Authenticates via `DefaultAzureCredential` (Entra ID — no API key)
+4. Connects using **`SessionTarget.FromAgent(agentConfig)`** — the agent defines tools, instructions, and voice
+5. Configures audio format only (PCM 16-bit for ACS compatibility)
+6. Starts background event loop: `Task.Run(ReceiveEventsAsync)`
 
 ```csharp
-await foreach (var serverEvent in _session.GetUpdatesAsync(cancellationToken))
+// Build agent session config
+var agentConfig = new AgentSessionConfig(agentName, projectName);
+if (!string.IsNullOrEmpty(agentVersion))
+    agentConfig.AgentVersion = agentVersion;
+
+// Agent mode requires Entra ID authentication (no API key)
+var client = new VoiceLiveClient(new Uri(endpoint), new DefaultAzureCredential());
+
+// Connect using SessionTarget.FromAgent
+_session = await client.StartSessionAsync(
+    SessionTarget.FromAgent(agentConfig), cancellationToken);
+
+// Only configure audio format — everything else is in the agent
+var options = new VoiceLiveSessionOptions
 {
-    await HandleSessionUpdateAsync(serverEvent, cancellationToken);
-}
+    InputAudioFormat = InputAudioFormat.Pcm16,
+    OutputAudioFormat = OutputAudioFormat.Pcm16,
+};
+await _session.ConfigureSessionAsync(options, cancellationToken);
 ```
 
-This is an async stream — events arrive continuously for the duration of the call.
+> **Key difference**: In the main branch, `VoiceLiveSessionOptions` includes model, instructions, voice, VAD, noise reduction, and all tool definitions. In the Foundry Agent branch, only audio format is configured in code — everything else lives in the agent definition managed by AgentManager.
 
-**HandleSessionUpdateAsync()** — Routes events:
+**Hold Audio** — While Voice Live connects (6–14s warm start, longer on cold start), the app plays a ring-back tone (440Hz) to the caller so they don't hear silence:
+
+```csharp
+_ = PlayHoldAudioAsync(_holdAudioCts.Token);
+```
+
+The hold audio stops automatically when the Voice Live session is ready (`SessionUpdateSessionUpdated` event).
+
+**ReceiveEventsAsync()** — Processes server events (same pattern as main branch):
 
 | Event | Action |
 |---|---|
-| `AudioDelta` | Forward audio bytes to ACS (the agent is speaking) |
-| `SpeechStarted` | Send `StopAudio` to ACS (barge-in — caller interrupted) |
-| `FunctionCallArgumentsDone` | Execute the tool and send result back |
-| `AudioTranscriptDone` | Log what the agent said |
-| `ResponseDone` | If end-call was requested, trigger hang-up |
+| `SessionUpdated` | Stop hold audio, send proactive greeting |
+| `AudioDelta` | Forward audio bytes to ACS |
+| `SpeechStarted` | Send `StopAudio` to ACS (barge-in) |
+| `FunctionCallArgumentsDone` | Execute client-side tool and send result back |
+| `AudioTranscriptDone` | Log agent speech + add to transcript |
+| `InputAudioTranscriptionCompleted` | Log caller speech + add to transcript |
 
-**HandleFunctionCallAsync()** — Tool dispatch:
+**HandleFunctionCallAsync()** — Tool dispatch (same pattern as main branch):
 
 ```csharp
 result = functionName switch
@@ -610,9 +674,35 @@ await _session.AddItemAsync(new FunctionCallOutputItem(callId, result));
 await _session.StartResponseAsync();
 ```
 
-The pattern is: execute the function → send the result to Voice Live → tell the model to generate a response.
+> **Note on file_search**: The Foundry Agent also has a `file_search` tool (for the product catalog) but this is handled **server-side** by the Foundry platform — your code never sees file_search invocations. Only client-side function tools appear in `HandleFunctionCallAsync()`.
 
-### 4.7 AgentFunctions — Simulated Business Logic
+### 4.7 AgentManager — Creating and Versioning the Foundry Agent
+
+Open `scripts/AgentManager/Program.cs`. This CLI tool manages the Foundry Agent lifecycle.
+
+**`create` command:**
+1. Uploads `docs/product-catalog.md` to the Foundry project file store
+2. Creates a vector store and adds the product catalog
+3. Defines all 8 function tools (`ResponseTool.CreateFunctionTool`)
+4. Adds `file_search` tool pointing to the vector store
+5. Creates the agent with `CreateAgentVersionAsync()`
+6. Outputs the agent ID (name:version format)
+
+**`delete` command:**
+Deletes the agent version, vector store, and uploaded file.
+
+**Running AgentManager locally:**
+```bash
+# Set the project endpoint
+export PROJECT_ENDPOINT="https://<ai-services>.services.ai.azure.com/api/projects/<project>"
+
+# Create the agent
+dotnet run --project scripts/AgentManager -- create
+```
+
+> **This step is required before running the app** — without a Foundry Agent, the Voice Live session cannot start. You'll do this in Lab 5.
+
+### 4.8 AgentFunctions — Simulated Business Logic (Client-Side)
 
 Open `Services/AgentFunctions.cs`.
 
@@ -657,7 +747,7 @@ Lookup works by customer ID (`12345`) or phone number (`+14255551234`).
 
 > **Key point**: The model never sees this code or the raw data. It only sees the function *definitions* (name, description, parameter schema) and the *results* your code returns.
 
-### 4.8 AcsMediaStreamingHandler — WebSocket Wrapper
+### 4.9 AcsMediaStreamingHandler — WebSocket Wrapper
 
 Open `Services/AcsMediaStreamingHandler.cs`.
 
@@ -668,7 +758,7 @@ Simple wrapper over the ACS WebSocket:
 - `OutStreamingData.GetAudioDataForOutbound()` — Wraps PCM bytes in ACS JSON format
 - `OutStreamingData.GetStopAudioForOutbound()` — Sends stop command (for barge-in)
 
-### 4.9 System Prompt
+### 4.10 System Prompt
 
 Open `Prompts/system-prompt.txt`:
 
@@ -694,23 +784,23 @@ RULES:
 
 **Key observations:**
 - Plain text — no JSON escaping needed
+- In the Foundry branch, the system prompt is loaded by **AgentManager** when creating the agent version, not by the app at runtime. Editing requires re-running AgentManager to create a new agent version.
 - Sets the agent's personality (friendly, concise)
 - Establishes rules (never say tool names, use tools proactively)
-- Loaded at runtime from the file system — edit and restart to apply changes
 
 ### Lab 4 Review Questions
 
-1. How does `CallSessionManager` bridge the gap between the HTTP callback and the WebSocket?
-2. What happens in `HandleSessionUpdateAsync()` when the model emits an `AudioDelta` event?
-3. Why does `end_call` not immediately hang up the phone?
-4. What does `session.StartResponseAsync()` do, and when is it called?
+1. How does `SessionTarget.FromAgent` differ from passing `VoiceLiveSessionOptions` directly?
+2. What is the role of AgentManager, and when do you need to run it?
+3. Which tool invocations are handled client-side vs. server-side?
+4. Why does the app play hold audio, and when does it stop?
 
 ---
 
 ## Lab 5: Local Development — Dev Tunnels, Configuration, and First Call
 
 **Duration**: 45 minutes  
-**Objective**: Configure the app, start it locally, and make your first AI voice call.
+**Objective**: Create the Foundry Agent, configure the app, start it locally, and make your first AI voice call.
 
 ### 5.1 Create a Dev Tunnel
 
@@ -740,31 +830,84 @@ Inspect network activity: https://abc123xyz.devtunnels.ms:4040
 
 > **Note**: The tunnel must stay open for the entire duration of local development. Open a new terminal for the remaining steps.
 
-### 5.2 Configure Application Settings
+### 5.2 Create the Foundry Agent (AgentManager)
 
-Create `appsettings.Development.json` in the project root (this file is in `.gitignore` and won't be committed):
+Before running the app, you need to create the Foundry Agent that defines the tools, instructions, and voice configuration.
+
+```bash
+# Set the project endpoint (from Lab 2.2)
+# Windows (PowerShell):
+$env:PROJECT_ENDPOINT = "https://<ai-services>.services.ai.azure.com/api/projects/<project-name>"
+
+# Linux/macOS:
+export PROJECT_ENDPOINT="https://<ai-services>.services.ai.azure.com/api/projects/<project-name>"
+
+# Create the agent
+dotnet run --project scripts/AgentManager -- create
+```
+
+You should see output like:
+```
+Creating Voice Live Standard Agent...
+  Uploading product catalog document...
+  FILE_ID: file-abc123
+  Creating vector store...
+  VECTORSTORE_ID: vs-xyz789
+  Waiting for vector store processing...
+  Vector store ready!
+  Creating Standard Agent...
+  AGENT_ID: VoiceLiveAgent:1
+==================================================
+Voice Live Standard Agent created successfully!
+  Agent ID:        VoiceLiveAgent:1
+  Vector Store ID: vs-xyz789
+  File ID:         file-abc123
+  Function tools:  8 (client-side)
+  file_search:     product catalog (server-side)
+==================================================
+```
+
+**Note the Agent ID** — the version number after the colon (e.g., `1`) is needed for the config.
+
+> **Important**: This step requires your `az login` session to have the **Cognitive Services User** role on the AI Services resource (Lab 2.4).
+
+### 5.3 Configure Application Settings
+
+Copy the template to create your local settings file (this file is in `.gitignore` and won't be committed):
+
+```bash
+cp appsettings.Development.template.json appsettings.Development.json
+```
+
+Then fill in your values:
 
 ```json
 {
   "DevTunnelUri": "https://<your-tunnel-url>.devtunnels.ms",
   "AcsConnectionString": "endpoint=https://<your-acs>.communication.azure.com/;accesskey=<key>",
-  "AzureVoiceLiveApiKey": "<your-api-key-from-lab-2>",
-  "AzureVoiceLiveEndpoint": "https://<your-ai-resource>.cognitiveservices.azure.com",
-  "VoiceLiveModel": "gpt-realtime-mini"
+  "VoiceLiveEndpoint": "https://<ai-services>.services.ai.azure.com/api/projects/<project-name>",
+  "FoundryAgentName": "VoiceLiveAgent",
+  "FoundryProjectName": "<your-project-name>",
+  "FoundryAgentVersion": "1",
+  "TransferPhoneNumber": "+441234567890"
 }
 ```
 
-Fill in the values from Labs 2 and 3:
+Fill in the values from Labs 2, 3, and 5.2:
 
 | Setting | Source |
 |---|---|
 | `DevTunnelUri` | Your dev tunnel URL from step 5.1 |
 | `AcsConnectionString` | ACS resource → Keys (Lab 3) |
-| `AzureVoiceLiveApiKey` | AI Foundry resource → Keys and Endpoint (Lab 2) |
-| `AzureVoiceLiveEndpoint` | AI Foundry resource → Overview → Endpoint (Lab 2) |
-| `VoiceLiveModel` | Your model deployment name: `gpt-realtime-mini` (Lab 2) |
+| `VoiceLiveEndpoint` | Foundry Project endpoint (Lab 2.2) — format: `https://<name>.services.ai.azure.com/api/projects/<project>` |
+| `FoundryAgentName` | `VoiceLiveAgent` (the agent name from AgentManager) |
+| `FoundryProjectName` | Your Foundry project name (Lab 2.2) |
+| `FoundryAgentVersion` | Version from AgentManager output (e.g., `1`) |
+| `TransferPhoneNumber` | Phone number for call transfers (E.164 format) |
 
-### 5.3 Register the EventGrid Webhook
+> **No API key needed** — authentication uses `DefaultAzureCredential`, which picks up your `az login` session locally and Managed Identity in production.
+
+### 5.4 Register the EventGrid Webhook
 
 Now that you have a public URL, register it with ACS:
 
@@ -784,10 +927,10 @@ Now that you have a public URL, register it with ACS:
 
 EventGrid will send a validation request to your endpoint. The app handles this automatically — but the app needs to be running first. So let's start it.
 
-### 5.4 Build and Run
+### 5.5 Build and Run
 
 ```bash
-cd ACSVoiceAgent
+cd ACSVoiceAgent-foundry
 dotnet build
 dotnet run
 ```
@@ -801,22 +944,25 @@ info: Microsoft.Hosting.Lifetime[14]
 
 > If you created the EventGrid subscription before starting the app, go back to the portal and click **Resend** on the subscription to trigger validation again.
 
-### 5.5 Make Your First Call
+### 5.6 Make Your First Call
 
 1. **Pick up your phone** and dial the ACS phone number you acquired in Lab 3
 2. Watch the terminal logs — you should see:
 
    ```
    info: Program[0] Incoming Call event received
-   info: Program[0] Incoming call from +1234567890
+   info: Program[0] Incoming call from +441234567890
    info: Program[0] Answered call. Connection ID: ...
    info: Program[0] Call connected. ConnectionId: ...
    info: Program[0] ACS WebSocket connected
-   info: AzureVoiceLiveService[0] Connecting to Voice Live with 8 tools...
-   info: AzureVoiceLiveService[0] Connected to Voice Live successfully
+   info: AzureVoiceLiveService[0] Playing hold audio while connecting to Voice Live
+   info: AzureVoiceLiveService[0] Connecting to Voice Live at ... with Foundry Agent 'VoiceLiveAgent'...
+   info: AzureVoiceLiveService[0] Connected to Voice Live with Foundry Agent successfully
+   info: AzureVoiceLiveService[0] Stopping hold audio
+   info: AzureVoiceLiveService[0] Sending proactive greeting request
    ```
 
-3. **Listen** — the agent should greet you: "Hi, I'm Ava, your customer care assistant..."
+3. **Listen** — you'll first hear a brief ring-back tone (hold audio) while Voice Live connects, then the agent greets you: "Hi, I'm Ava, your customer care assistant..."
 
 4. **Try these conversations** (use the exact test data from `AgentFunctions.cs`):
 
@@ -850,19 +996,22 @@ info: Microsoft.Hosting.Lifetime[14]
 
    > **Tip**: Try customer ID `67890` (John Smith) or ask about order `003` (Delivered) for different responses. Any unrecognized ID returns a "not found" error that the agent will relay politely.
 
-### 5.6 Understanding the Logs
+### 5.7 Understanding the Logs
 
 While on the call, watch the terminal output. Key log lines to look for:
 
 ```
 # Voice Live connected and agent starts speaking
 info: AzureVoiceLiveService[0] Voice Live session created
+info: AzureVoiceLiveService[0] Voice Live session updated and ready
 info: AzureVoiceLiveService[0] Agent transcript: Hi! I'm Ava...
 
 # Caller speaks and a tool is invoked
 info: AzureVoiceLiveService[0] Speech started (barge-in)
 info: AzureVoiceLiveService[0] Function call: customer_lookup with call_id: call_xxx, args: {"identifier":"12345"}
-info: AzureVoiceLiveService[0] Function customer_lookup completed with result: {"name":"Genady Belenky","id":"12345","phone":"+14255551234","tier":"Gold","balance":150.00}
+info: AzureVoiceLiveService[0] Function customer_lookup completed with result: {"name":"Genady Belenky",...}
+
+# Caller asks about products (handled server-side by file_search — no log in your app)
 
 # Call ends
 warn: AzureVoiceLiveService[0] End call requested for ...
@@ -871,19 +1020,21 @@ warn: AzureVoiceLiveService[0] HangUpAsync completed successfully
 info: Program[0] Call disconnected. CorrelationId: ...
 ```
 
-### 5.7 Troubleshooting
+### 5.8 Troubleshooting
 
 | Symptom | Likely Cause | Fix |
 |---|---|---|
 | No logs when calling | EventGrid webhook not registered or wrong URL | Re-check the endpoint URL includes `/api/incomingCall` |
 | "Incoming Call event received" but no answer | ACS connection string wrong | Verify `AcsConnectionString` in config |
-| Call answers but no audio/greeting | Voice Live connection failed | Check `AzureVoiceLiveEndpoint` and `AzureVoiceLiveApiKey` |
-| "No call session found after 30s" | Race condition (rare) | Retry the call — the Channel handoff may have timed out |
+| Call answers but only ring-back tone, no greeting | Voice Live or Foundry Agent failed | Check `VoiceLiveEndpoint`, `FoundryAgentName`, and `FoundryAgentVersion` |
+| `AuthenticationFailedError` in logs | Entra ID not configured | Run `az login` and verify Cognitive Services User role (Lab 2.4) |
+| "No call session found after 30s" | Race condition (rare) | Retry the call |
 | Tunnel errors | Dev tunnel not running | Restart `devtunnel host` and update the config URL |
 
 ### Lab 5 Checkpoint
 
 - [ ] Dev tunnel running with public URL
+- [ ] Foundry Agent created via AgentManager (agent ID noted)
 - [ ] `appsettings.Development.json` configured with all values
 - [ ] EventGrid subscription registered
 - [ ] App runs and answers calls
@@ -901,18 +1052,24 @@ info: Program[0] Call disconnected. CorrelationId: ...
 The Voice Live SDK has two main classes:
 
 ```csharp
-// Client: connects to Azure AI Foundry
-var client = new VoiceLiveClient(new Uri(endpoint), new AzureKeyCredential(apiKey));
+// Client: connects to Azure AI Foundry (Entra ID auth for agent mode)
+var client = new VoiceLiveClient(new Uri(endpoint), new DefaultAzureCredential());
 
-// Session: represents one active conversation
-var session = await client.StartSessionAsync(sessionOptions, cancellationToken);
+// Session: represents one active conversation, connected to a Foundry Agent
+var agentConfig = new AgentSessionConfig(agentName, projectName);
+var session = await client.StartSessionAsync(
+    SessionTarget.FromAgent(agentConfig), cancellationToken);
 ```
 
 The **client** is the connection factory. The **session** is the active conversation — it holds the audio stream, the conversation history, and the tool state. One session per phone call.
 
-### 6.2 Session Options Deep Dive — VoiceLiveSessionOptions
+> **Agent mode vs. direct mode**: In the main branch, `client.StartSessionAsync(sessionOptions)` passes all configuration (model, tools, voice, VAD) inline. In this branch, `SessionTarget.FromAgent(agentConfig)` tells Voice Live to use a Foundry Agent that was created externally via AgentManager. Only audio format settings are configured client-side via `session.ConfigureSessionAsync(options)`.
 
-`VoiceLiveSessionOptions` is the central configuration object for a Voice Live session. Every property controls a different aspect of how the realtime model processes audio, generates responses, and interacts with your application. Below is the complete reference for every property, grouped by category.
+### 6.2 Session Options in Agent Mode
+
+`VoiceLiveSessionOptions` is the central configuration object for a Voice Live session. In **agent mode**, most properties (Model, Instructions, Voice, Tools, VAD) are defined in the Foundry Agent — you only configure audio format client-side via `session.ConfigureSessionAsync()`. The full reference below is still valuable for understanding what the agent controls.
+
+> **In this branch**: Only `InputAudioFormat` and `OutputAudioFormat` are set in code. Everything else is configured in the Foundry Agent definition.
 
 #### Session Identity
 
@@ -1020,52 +1177,38 @@ TurnDetection = new AzureSemanticVadTurnDetection()
 | `Animation` | `AnimationOptions` | Animation configuration for visual applications. Not used in telephony. |
 | `Avatar` | `AvatarConfiguration` | Configuration for avatar streaming (e.g., a visual avatar that lip-syncs with the agent's speech). Not used in our phone-only scenario but available for video call or kiosk applications. |
 
-#### How Our App Configures the Session
+#### How Our App Configures the Session (Agent Mode)
 
-Here's the actual code from `AzureVoiceLiveService.cs` with annotations for each property:
+In the Foundry Agent branch, session configuration is minimal — the agent handles everything else:
 
 ```csharp
-var sessionOptions = new VoiceLiveSessionOptions
+// Build agent session config
+var agentConfig = new AgentSessionConfig(agentName, projectName);
+agentConfig.AgentVersion = agentVersion;
+
+// Agent mode uses Entra ID (DefaultAzureCredential), not API key
+var client = new VoiceLiveClient(new Uri(endpoint), new DefaultAzureCredential());
+
+// Connect to the Foundry Agent — tools, instructions, voice, VAD are all in the agent
+_session = await client.StartSessionAsync(
+    SessionTarget.FromAgent(agentConfig), cancellationToken);
+
+// Only configure audio format (must match ACS PCM 24kHz mono)
+var options = new VoiceLiveSessionOptions
 {
-    // Session Identity
-    Model = model,                                     // "gpt-realtime-mini" from config
-    Instructions = systemPrompt,                       // Loaded from Prompts/system-prompt.txt
-
-    // Voice
-    Voice = new AzureStandardVoice("en-US-Ava:DragonHDLatestNeural"),
-
-    // Audio Format (matching ACS PCM 24kHz mono)
     InputAudioFormat = InputAudioFormat.Pcm16,
     OutputAudioFormat = OutputAudioFormat.Pcm16,
-
-    // Telephony Audio Processing (Voice Live exclusive)
-    InputAudioNoiseReduction = new AudioNoiseReduction(AudioNoiseReductionType.FarField),
-    InputAudioEchoCancellation = new AudioEchoCancellation(),
-
-    // Turn Detection
-    TurnDetection = new ServerVadTurnDetection
-    {
-        Threshold = 0.5f,                              // Balanced sensitivity
-        PrefixPadding = TimeSpan.FromMilliseconds(300),// Capture word beginnings
-        SilenceDuration = TimeSpan.FromMilliseconds(500)// Wait 500ms of silence
-    }
 };
-
-// Modalities: both text and audio
-sessionOptions.Modalities.Clear();
-sessionOptions.Modalities.Add(InteractionModality.Text);
-sessionOptions.Modalities.Add(InteractionModality.Audio);
-
-// Tools: 8 function definitions added to sessionOptions.Tools
-// (customer_lookup, order_status, check_appointment, book_appointment,
-//  cancel_appointment, search_knowledge_base, transfer_call, end_call)
+await _session.ConfigureSessionAsync(options, cancellationToken);
 ```
 
-> **Key takeaway**: `VoiceLiveSessionOptions` is where you configure _everything_ about a voice session — the model, the voice, how audio is processed, when the agent starts speaking, and what tools are available. Getting these settings right is the difference between an agent that feels natural and one that frustrates callers.
+Compare this with the **main branch** (direct mode), where the full `VoiceLiveSessionOptions` includes model, instructions, voice, VAD, noise reduction, tools, and modalities — all configured in code.
+
+> **Key takeaway**: In agent mode, the Foundry Agent definition is the "source of truth" for the agent's behavior. Code only handles audio format and the event loop. To change the voice, tools, or instructions, update the agent definition via AgentManager and create a new version.
 
 ### 6.3 Voice Options
 
-Voice Live supports **all Azure TTS voices**, not just the 6 built-in OpenAI voices:
+In the Foundry Agent branch, the voice is configured in the agent definition (managed by AgentManager via the Foundry portal or API). Voice Live supports **all Azure TTS voices**, not just the 6 built-in OpenAI voices:
 
 | Category | Example | SDK Class |
 |---|---|---|
@@ -1080,7 +1223,9 @@ Browse the full voice catalog: [Azure TTS Voice Gallery](https://speech.microsof
 
 VAD controls how the model decides when the caller has stopped speaking. This is critical for conversational quality.
 
-**Experiment**: While your app is running, try these changes in `AzureVoiceLiveService.cs`:
+> **Note**: In the Foundry Agent branch, VAD settings are part of the agent definition. To experiment with the settings described below, you would need to update the agent definition in the Foundry portal or modify AgentManager. The concepts are the same as in the main branch.
+
+**Reference**: These are the VAD settings you can configure in the agent or via `VoiceLiveSessionOptions` (in direct mode):
 
 **Make the agent wait longer before responding (less interrupting):**
 ```csharp
@@ -1112,7 +1257,7 @@ TurnDetection = new ServerVadTurnDetection
 }
 ```
 
-> **Important**: These are C# code changes, not runtime configuration. You must stop the app (`Ctrl+C`), then restart with `dotnet run` for changes to take effect. The session options are compiled into the binary and constructed fresh for each new incoming call — existing active calls are not affected.
+> **Important**: In the Foundry Agent branch, these VAD settings are defined in the agent, not in code. To experiment, you can switch to the **main branch** where these are set directly in `AzureVoiceLiveService.cs`, or modify the agent definition via the Foundry portal. Changes to the agent definition require creating a new agent version via AgentManager.
 
 **Try Azure Semantic VAD (AI-powered turn detection):**
 
@@ -1159,39 +1304,46 @@ Without barge-in, callers would have to wait for the agent to finish speaking be
 
 ### 6.7 Exercise: Change the Voice
 
-Try changing the voice to a different Azure HD voice:
+In the Foundry Agent branch, the voice is configured in the agent definition. To change it, you would update the agent via the Foundry portal or modify AgentManager. For reference, these are popular Azure HD voices:
 
-1. Open `Services/AzureVoiceLiveService.cs`
-2. Find the `Voice` property in `CreateSessionAsync()`
-3. Change it:
+| Voice | Regional Accent |
+|---|---|
+| `en-US-Ava:DragonHDLatestNeural` | American (current default) |
+| `en-US-Andrew:DragonHDLatestNeural` | American (male) |
+| `en-GB-Libby:DragonHDLatestNeural` | British |
+| `en-AU-Natasha:DragonHDLatestNeural` | Australian |
 
-```csharp
-// Try a male voice:
-Voice = new AzureStandardVoice("en-US-Andrew:DragonHDLatestNeural"),
-
-// Try a British accent:
-Voice = new AzureStandardVoice("en-GB-Libby:DragonHDLatestNeural"),
-```
-
-4. Restart and call in to hear the difference
+> **Tip**: To quickly experiment with voices, try the [main branch](https://github.com/gbelenky/ACSVoiceAgent) where the voice is set directly in code via `AzureStandardVoice`.
 
 ### Lab 6 Checkpoint
 
 - [ ] Understand VoiceLiveClient vs. VoiceLiveSession
-- [ ] Experimented with VAD SilenceDuration
+- [ ] Understand agent mode vs. direct mode session configuration
 - [ ] Understand barge-in mechanism
-- [ ] Changed the voice to a different Azure voice
+- [ ] Know how to change voice configuration in the Foundry Agent
 
 ---
 
 ## Lab 7: Function Calling — Add a New Tool to the Voice Agent
 
 **Duration**: 45 minutes  
-**Objective**: Define a new tool, implement its business logic, and wire it into the voice agent.
+**Objective**: Define a new tool in the Foundry Agent, implement its business logic, and wire it into the dispatch.
 
-### 7.1 Understanding Tool Definitions
+### 7.1 How Function Calling Works with Foundry Agents
 
-Each tool is defined as a `VoiceLiveFunctionDefinition` with:
+In the Foundry Agent branch, tool definitions live in **two places**:
+
+1. **AgentManager** (`scripts/AgentManager/Program.cs`) — Defines the tool schema (name, description, parameters) as `ResponseTool.CreateFunctionTool()`. This is uploaded to the Foundry Agent when you run `AgentManager create`.
+2. **AzureVoiceLiveService** (`Services/AzureVoiceLiveService.cs`) — Dispatches tool calls to the implementation in `HandleFunctionCallAsync()`.
+3. **AgentFunctions** (`Services/AgentFunctions.cs`) — Contains the actual business logic.
+
+When the Foundry Agent decides to call a tool during a conversation:
+1. Voice Live sends a `FunctionCallArgumentsDone` event to your app
+2. Your app's `HandleFunctionCallAsync()` dispatches to the correct function
+3. The result is sent back via `session.AddItemAsync(new FunctionCallOutputItem(...))`
+4. The agent generates a spoken response based on the result
+
+> **file_search is different**: The `file_search` tool (product catalog) is handled **server-side** by the Foundry platform. Your code never receives file_search invocations — the agent searches the vector store directly and uses the results in its response.
 
 | Property | Purpose |
 |---|---|
@@ -1199,31 +1351,26 @@ Each tool is defined as a `VoiceLiveFunctionDefinition` with:
 | `Description` | Natural language description (the model reads this to decide **when** to call the function) |
 | `Parameters` | JSON Schema defining the function's input parameters |
 
-The **description is critical** — it's what the model uses to decide when to invoke the tool. A vague description leads to unreliable tool selection.
-
 ### 7.2 Exercise: Add a "check_weather" Tool
 
-Let's add a weather lookup tool. We'll go through the three steps: define, implement, wire.
+Let's add a weather lookup tool. We'll go through the three steps: define in AgentManager, implement, wire.
 
-**Step 1: Define the tool** — Open `Services/AzureVoiceLiveService.cs` and add the tool definition in `CreateSessionAsync()`, after the existing tools:
+**Step 1: Define the tool in AgentManager** — Open `scripts/AgentManager/Program.cs` and add to the `GetFunctionTools()` method:
 
 ```csharp
-sessionOptions.Tools.Add(new VoiceLiveFunctionDefinition("check_weather")
-{
-    Description = "Check the current weather for a given city. Use when the caller asks about weather conditions.",
-    Parameters = BinaryData.FromString("""
+ResponseTool.CreateFunctionTool(
+    "check_weather",
+    BinaryData.FromString(JsonSerializer.Serialize(new
+    {
+        type = "object",
+        properties = new
         {
-            "type": "object",
-            "properties": {
-                "city": { 
-                    "type": "string", 
-                    "description": "The city name to check weather for" 
-                }
-            },
-            "required": ["city"]
-        }
-        """)
-});
+            city = new { type = "string", description = "The city name to check weather for" }
+        },
+        required = new[] { "city" }
+    })),
+    strictModeEnabled: null,
+    functionDescription: "Check the current weather for a given city. Use when the caller asks about weather conditions."),
 ```
 
 **Step 2: Implement the function** — Open `Services/AgentFunctions.cs` and add:
@@ -1268,6 +1415,18 @@ result = functionName switch
 };
 ```
 
+**Step 4: Re-create the Foundry Agent** — The agent definition must be updated with the new tool:
+
+```bash
+# Delete the old agent version
+dotnet run --project scripts/AgentManager -- delete
+
+# Create a new version with the weather tool
+dotnet run --project scripts/AgentManager -- create
+```
+
+Update `FoundryAgentVersion` in `appsettings.Development.json` with the new version number from the output.
+
 ### 7.3 Test Your New Tool
 
 1. Restart the app: `dotnet run`
@@ -1284,7 +1443,7 @@ info: AzureVoiceLiveService[0] Function check_weather completed with result: {"c
 
 ### 7.4 Update the System Prompt
 
-Since we added a new capability, update `Prompts/system-prompt.txt` to mention it:
+Since we added a new capability, update `Prompts/system-prompt.txt` to mention it, then re-create the agent:
 
 ```
 When you greet the caller, briefly introduce yourself and let them know you can help with:
@@ -1297,6 +1456,14 @@ When you greet the caller, briefly introduce yourself and let them know you can 
 - Ending the call
 ```
 
+Then re-run AgentManager:  
+```bash
+dotnet run --project scripts/AgentManager -- delete
+dotnet run --project scripts/AgentManager -- create
+```
+
+> **Key difference from main branch**: In the main branch, changing the system prompt only requires editing the file and restarting the app. In the Foundry Agent branch, you must also re-create the agent version since the prompt is baked into the agent definition.
+
 ### 7.5 Key Patterns for Writing Good Tools
 
 | Principle | Why |
@@ -1304,17 +1471,20 @@ When you greet the caller, briefly introduce yourself and let them know you can 
 | **Clear description** | The model uses the description to decide when to invoke the tool. Be specific about what it does and when to use it |
 | **Required parameters** | Mark parameters as `required` in the JSON Schema. Optional parameters should have sensible defaults |
 | **Return JSON** | Always return JSON — the model parses it better than free-text |
-| **Return useful errors** | Include an `error` field in the response so the model can explain the failure to the caller |
-| **Don't expose internals** | Don't return raw database IDs, stack traces, or connection strings. Return user-friendly data only |
+| **Return useful errors** | Include an `error` field so the model can explain the failure to the caller |
+| **Don't expose internals** | Don't return raw database IDs, stack traces, or connection strings |
 | **Keep functions focused** | One function = one action. Don't create a "do_everything" function |
+| **Three-file sync** | Tool definition (AgentManager) + implementation (AgentFunctions) + dispatch (AzureVoiceLiveService) must all agree |
 
 ### Lab 7 Checkpoint
 
-- [ ] Added `check_weather` tool definition in Voice Live session options
+- [ ] Added `check_weather` tool definition in AgentManager
 - [ ] Implemented `CheckWeather()` in `AgentFunctions.cs`
 - [ ] Added dispatch case in `HandleFunctionCallAsync()`
+- [ ] Re-created the Foundry Agent with the new tool
+- [ ] Updated `FoundryAgentVersion` in config
 - [ ] Tested: agent correctly responds to weather questions
-- [ ] Updated system prompt with the new capability
+- [ ] Updated system prompt and re-created agent
 
 ---
 
@@ -1345,9 +1515,9 @@ Configuration is defined in two files:
 Open `azure.yaml`:
 
 ```yaml
-name: acs-voice-agent
+name: acs-voice-agent-foundry
 metadata:
-  template: acs-voice-agent
+  template: acs-voice-agent-foundry
 services:
   web:
     project: .
@@ -1357,6 +1527,11 @@ services:
 
 This tells `azd`: "Deploy the current directory as a C# app to Azure App Service."
 
+The `azure.yaml` also defines **lifecycle hooks**:
+- **`postprovision`** — Generates `appsettings.Development.json` from azd env vars and runs AgentManager to create the Foundry Agent (with retry logic)
+- **`postdeploy`** — Updates the EventGrid subscription to point to the deployed App Service URL
+- **`predown`** — Deletes the Foundry Agent and its resources before destroying infrastructure
+
 Open `infra/main.bicep` — it creates:
 
 | Resource | SKU | Why |
@@ -1364,13 +1539,14 @@ Open `infra/main.bicep` — it creates:
 | Resource Group | — | Container for all resources |
 | App Service Plan | B1 (Linux) | Hosting compute (Always On enabled) |
 | App Service | .NET 8 | Hosts the voice agent (WebSockets enabled) |
+| Azure AI Services | S0 | Hosts the AI models and Foundry project |
+| AI Foundry Project | — | Organizes agents, deployments, and data |
+| Model Deployment | gpt-4.1-mini | Chat model for the Foundry Agent |
+| RBAC Assignments | — | Cognitive Services User for App Service MI and deployer |
 | Log Analytics Workspace | — | Collects logs |
 | Application Insights | — | Application monitoring and telemetry |
 
-**Key App Service settings configured by Bicep:**
-- `alwaysOn: true` — prevents cold starts (critical for real-time calls)
-- `webSocketsEnabled: true` — required for ACS media streaming
-- All config values (API keys, endpoints) injected as app settings
+> **Key difference from main branch**: The Foundry branch Bicep creates AI Services, a Foundry Project, and model deployment automatically. The main branch only creates App Service and monitoring — AI resources are created manually.
 
 ### 8.3 Initialize and Configure the Environment
 
@@ -1389,15 +1565,21 @@ When prompted, select:
 Now set the required environment variables:
 
 ```bash
-azd env set AZURE_LOCATION westeurope
+# Required: ACS connection (pre-existing resource, not created by Bicep)
 azd env set ACS_CONNECTION_STRING "endpoint=https://<your-acs>.communication.azure.com/;accesskey=<key>"
-azd env set AZURE_VOICE_LIVE_API_KEY "<your-api-key>"
-azd env set AZURE_VOICE_LIVE_ENDPOINT "https://<your-resource>.cognitiveservices.azure.com"
-azd env set VOICE_LIVE_MODEL "gpt-realtime-mini"
-azd env set TRANSFER_PHONE_NUMBER "+1234567890"
+azd env set ACS_RESOURCE_NAME "<your-acs-resource-name>"
+azd env set ACS_RESOURCE_GROUP "<your-acs-resource-group>"
+
+# Required: Your Azure user object ID (for RBAC)
+azd env set AZURE_PRINCIPAL_ID "$(az ad signed-in-user show --query id -o tsv)"
+
+# Optional: Override defaults
+azd env set TRANSFER_PHONE_NUMBER "+441234567890"
+azd env set CHAT_MODEL_NAME "gpt-4.1-mini"      # default: gpt-4.1-mini
+azd env set AI_LOCATION "westeurope"              # default: same as AZURE_LOCATION
 ```
 
-> Replace the placeholder values with your actual values from Labs 2 and 3.
+> `ACS_RESOURCE_NAME` and `ACS_RESOURCE_GROUP` are for the `postdeploy` EventGrid hook. If you prefer to manage EventGrid manually (as in Lab 5), you can skip these.
 
 ### 8.4 Provision and Deploy
 
@@ -1406,10 +1588,11 @@ azd up
 ```
 
 This will:
-1. **Provision** — Create the Resource Group, App Service Plan, App Service, Log Analytics, and Application Insights
-2. **Deploy** — Build the .NET app, package, and deploy to App Service
+1. **Provision** — Create the Resource Group, App Service, AI Services, Foundry Project, model deployment, RBAC, and monitoring
+2. **Post-provision** — Generate `appsettings.Development.json` and run AgentManager to create the Foundry Agent
+3. **Deploy** — Build the .NET app, package, and deploy to App Service
 
-The process takes 3-5 minutes. When complete, you'll see:
+The process takes 5-10 minutes (longer than main branch due to AI resource provisioning). When complete, you'll see:
 
 ```
 SUCCESS: Your application was provisioned and deployed to Azure in X minutes.
@@ -1427,15 +1610,20 @@ You should see: **"ACS Voice Agent with Voice Live SDK"**
 
 ### 8.6 Update the EventGrid Webhook
 
-Now switch your ACS EventGrid subscription from the dev tunnel to the production URL:
+Now that your app is deployed, you need to update the EventGrid subscription to point to your App Service URL instead of the dev tunnel:
 
-1. Go to Azure Portal → ACS resource → **Events**
-2. Click on your existing event subscription
-3. Change the endpoint URL to:
+1. Go to Azure Portal → your **ACS resource** → **Events**
+2. Click the existing `incoming-call-webhook` subscription (created in Lab 5)
+3. Click **Edit** and update the **Endpoint** to:
    ```
    https://app-xxxxx.azurewebsites.net/api/incomingCall
    ```
-4. Save
+   (Replace `app-xxxxx` with your actual App Service hostname from step 8.5)
+4. Click **Save**
+
+EventGrid will re-validate the endpoint against your deployed app. Make sure the deployment completed successfully before updating.
+
+> **Tip**: If you set `ACS_RESOURCE_NAME` and `ACS_RESOURCE_GROUP` in step 8.3, the `postdeploy` hook may have already done this automatically. Check the ACS Events blade to confirm.
 
 ### 8.7 Test in Production
 
@@ -1466,8 +1654,8 @@ Or view in the Azure Portal → App Service → **Log stream**.
 ### Lab 8 Checkpoint
 
 - [ ] `azd init` completed with environment configured
-- [ ] All environment variables set
-- [ ] `azd up` completed successfully
+- [ ] All environment variables set (including `AZURE_PRINCIPAL_ID`)
+- [ ] `azd up` completed successfully (AI Services + Foundry Agent created)
 - [ ] App accessible at the App Service URL
 - [ ] EventGrid subscription updated to production URL
 - [ ] Successfully called the agent via the cloud deployment
@@ -1603,14 +1791,15 @@ At 20,000 calls/day: approximately $1,400–$3,400/month for the AI model + $400
 To remove all Azure resources created during this training:
 
 ```bash
-# Delete the azd-provisioned resources (App Service, monitoring)
+# Delete the azd-provisioned resources (App Service, AI Services, Foundry Project, monitoring)
+# The predown hook will automatically delete the Foundry Agent and vector store
 azd down --force
 
-# Optionally delete the resource group with ACS and AI Foundry
+# Optionally delete the resource group with ACS (if created for training)
 az group delete --name rg-voiceagent-training --yes
 ```
 
-> **Warning**: Deleting the resource group will delete your ACS resource, phone number, and AI Foundry resource permanently.
+> **Warning**: `azd down` will delete the AI Services resource, Foundry Project, model deployment, and all agent versions. The `predown` hook cleans up the Foundry Agent resources first. Deleting the ACS resource group will also release your phone number permanently.
 
 ### Lab 9 Checkpoint
 
@@ -1625,21 +1814,23 @@ az group delete --name rg-voiceagent-training --yes
 ## Summary: What You Built Today
 
 ```
-Phone Call -> ACS -> EventGrid -> ASP.NET Core -> Voice Live SDK -> GPT Realtime Mini
+Phone Call -> ACS -> EventGrid -> ASP.NET Core -> Voice Live SDK -> Foundry Agent
                                     |                              |
-                               Business Logic              Audio Processing
-                            (8 function tools)          (noise reduction, VAD,
-                                                        echo cancellation, HD voice)
+                               Business Logic              Agent Definition
+                          (client-side tools)          (tools, instructions, voice,
+                                                        file_search, vector store)
 ```
 
 ### Key Technologies
 
 | Technology | Role |
 |---|---|
-| **Azure AI Foundry** | Hosts the GPT Realtime model |
-| **Azure AI Voice Live** | Adds telephony-grade audio features (noise, echo, HD voice, VAD) |
+| **Azure AI Foundry** | Hosts the AI models and manages the Foundry Agent |
+| **Foundry Agent** | Cloud-managed agent with tools, instructions, and file search |
+| **Azure AI Voice Live** | Audio bridge between ACS and the Foundry Agent (agent mode) |
 | **Azure Communication Services** | Connects to the phone network (PSTN) |
 | **ASP.NET Core** | Bridges ACS audio with Voice Live — the "glue" |
+| **AgentManager** | CLI tool for creating and versioning the Foundry Agent |
 | **Azure Developer CLI (`azd`)** | Infrastructure-as-code provisioning and deployment |
 | **Application Insights** | Production monitoring and diagnostics |
 
@@ -1647,23 +1838,27 @@ Phone Call -> ACS -> EventGrid -> ASP.NET Core -> Voice Live SDK -> GPT Realtime
 
 | Concept | What you learned |
 |---|---|
+| **Foundry Agent mode** | `SessionTarget.FromAgent` — agent defines tools, voice, and behavior; code handles audio only |
 | **Realtime API** | Audio-native LLMs that process speech directly (no STT/TTS pipeline) |
 | **Function calling** | Model decides when to invoke your business logic based on conversation context |
+| **Client-side vs. server-side tools** | Function tools run in your code; file_search runs in the Foundry platform |
 | **Voice Activity Detection** | How the model knows when the caller is done speaking |
 | **Barge-in** | Caller can interrupt the agent mid-sentence |
-| **Bidirectional WebSocket** | Real-time audio streaming between ACS and your app |
-| **Channel-based coordination** | Thread-safe session handoff between HTTP callbacks and WebSockets |
-| **`azd up`** | One command to provision infrastructure and deploy code |
+| **Entra ID authentication** | `DefaultAzureCredential` — no API keys required |
+| **Agent versioning** | AgentManager creates versioned agents; update config to switch versions |
+| **`azd up`** | One command to provision infrastructure, create agent, and deploy code |
 | **Content safety** | Platform filters + prompt rules + application guardrails |
 
 ### Next Steps
 
 - **Connect real data sources**: Replace `AgentFunctions.cs` mock data with your CRM, ERP, or database APIs
-- **Add more tools**: Follow the Lab 7 pattern to add domain-specific capabilities
-- **Tune the prompt**: Iterate on `Prompts/system-prompt.txt` for your brand voice and policies
+- **Add more tools**: Follow the Lab 7 pattern (AgentManager + AgentFunctions + dispatch)
+- **Add more documents**: Upload additional files to the vector store for richer product catalog search
+- **Tune the prompt**: Edit `Prompts/system-prompt.txt` and re-run AgentManager
 - **Enable Direct Routing**: Connect your enterprise SBC for internal phone numbers
-- **Add post-call processing**: Call summarization, CRM updates, follow-up emails (good candidates for Durable Functions)
-- **Multi-language support**: Voice Live supports multiple languages — change the voice and prompt
+- **Add post-call processing**: Call summarization, CRM updates, follow-up emails
+- **Multi-language support**: Voice Live supports multiple languages — change the voice in the agent definition
+- **Try the main branch**: Compare the direct mode (all-in-code) approach with the Foundry Agent approach
 
 ### Resources
 
