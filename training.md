@@ -11,14 +11,14 @@
 | **Duration** | Full day (~7 hours with breaks) |
 | **Level** | Intermediate — assumes Azure Portal familiarity and basic C# knowledge |
 | **What you'll build** | A production-grade AI voice agent that answers phone calls, holds natural conversations, and executes business logic in real time |
-| **What you'll learn** | Generative AI fundamentals, Azure AI Foundry, GPT Realtime API, Voice Live SDK, ACS telephony, function calling, and cloud deployment with `azd` |
+| **What you'll learn** | Generative AI fundamentals, Microsoft Foundry, GPT Realtime API, Voice Live SDK, ACS telephony, function calling, and cloud deployment with `azd` |
 
 ### Agenda
 
 | Time | Lab | Topic |
 |---|---|---|
 | 09:00–09:45 | 1 | Concepts — GenAI, LLMs, and the Realtime API |
-| 09:45–10:30 | 2 | Azure AI Foundry — Create resources and deploy a Realtime model |
+| 09:45–10:30 | 2 | Microsoft Foundry — Create resources and deploy a Realtime model |
 | 10:30–10:45 | | *Break* |
 | 10:45–11:30 | 3 | Azure Communication Services — Phone numbers and Direct Routing |
 | 11:30–12:15 | 4 | Project walkthrough — Understand the voice agent codebase |
@@ -42,11 +42,11 @@
 - 1.6 The Voice Live API
 - 1.7 Key Takeaways
 
-**Lab 2: Azure AI Foundry — Create Resources and Deploy a Realtime Model**
-- 2.1 Create an Azure AI Foundry Resource
+**Lab 2: Microsoft Foundry — Create Resources and Deploy a Realtime Model**
+- 2.1 Create a Foundry Project and Resource
 - 2.2 Deploy the Realtime Model
-- 2.3 Record Your Credentials
-- 2.4 Verify the Deployment
+- 2.3 Gather Your Connection Details
+- 2.4 Understanding Content Safety Filters
 
 **Lab 3: Azure Communication Services — Phone Numbers and Direct Routing**
 - 3.1 Create an ACS Resource
@@ -167,9 +167,9 @@ Caller speaks --> Realtime Model (audio in, audio out) --> Caller hears
 
 The model natively understands audio input and generates audio output. No intermediate text conversion is required. Latency drops to ~200ms.
 
-### 1.3 Azure AI Foundry and the GPT Realtime API
+### 1.3 Microsoft Foundry and the GPT Realtime API
 
-**Azure AI Foundry** (formerly Azure AI Studio / Azure OpenAI Service) is the Microsoft platform for deploying and managing AI models. It provides:
+**Microsoft Foundry** (formerly Azure AI Foundry / Azure AI Studio / Azure OpenAI Service) is the Microsoft platform for deploying and managing AI models. It provides:
 
 - Model catalog with GPT-5 series, GPT-4.1 series, GPT Realtime, and other models
 - API endpoints with built-in content safety filters
@@ -238,7 +238,7 @@ Here's the complete architecture of what we're building:
 
 ```
 +----------+     +-----------------+      +------------------------------+      +----------------------+
-|          |     |                 |      |       App Service            |      |   Azure AI Foundry   |
+|          |     |                 |      |       App Service            |      | Microsoft Foundry    |
 |  Caller  |---->|  ACS            |----> |                              |----> |                      |
 |  (Phone) |<----|  (PSTN Gateway) |<---- |  ASP.NET Core Minimal API    |<---- |  Voice Live Service  |
 |          |     |                 |      |                              |      |  (gpt-realtime-mini) |
@@ -277,44 +277,49 @@ Here's the complete architecture of what we're building:
 
 ---
 
-## Lab 2: Azure AI Foundry — Create Resources and Deploy a Realtime Model
+## Lab 2: Microsoft Foundry — Create Resources and Deploy a Realtime Model
 
 **Duration**: 45 minutes  
-**Objective**: Create an Azure AI Foundry resource and deploy the `gpt-realtime-mini` model.
+**Objective**: Create a Microsoft Foundry project and deploy the `gpt-realtime-mini` model.
 
-### 2.1 Create an Azure AI Foundry Resource
+### 2.1 Create a Foundry Project and Resource
 
-1. Go to the [Azure Portal](https://portal.azure.com)
-2. Click **Create a resource** → search for **Azure AI Services** (multi-service account)
-3. Click **Create** and fill in:
+The simplest way to get started is through the Foundry portal, which creates the underlying Azure resource automatically.
+
+1. Go to [Microsoft Foundry](https://ai.azure.com) and sign in
+2. Make sure the **New Foundry** toggle (top of the page) is **on**
+3. In the upper-left corner, click the project name → **Create new project**
+4. Give your project a name (e.g., `voiceagent-training`) and click **Create project**
+
+   Under **Advanced options** you can customize:
 
    | Field | Value |
    |---|---|
-   | **Subscription** | Your Azure subscription |
    | **Resource group** | Create new: `rg-voiceagent-training` |
-   | **Region** | `West Europe` (or your preferred region — must support Realtime models) |
-   | **Name** | `ai-voiceagent-<your-initials>` (must be globally unique) |
-   | **Pricing tier** | Standard S0 |
+   | **Location** | `West Europe` (must support Realtime models) |
 
-4. Review and **Create**
+   If you leave defaults, a new resource group and **Foundry resource** are created automatically.
 
-> **Important**: The region must support GPT Realtime models. Check the [model availability table](https://learn.microsoft.com/en-us/azure/ai-services/openai/concepts/models#model-summary-table-and-region-availability) if you're unsure. Common regions: `West Europe`, `East US 2`, `Sweden Central`.
+> **Important**: The location must support GPT Realtime models. Check the [model availability table](https://learn.microsoft.com/en-us/azure/ai-services/openai/concepts/models#model-summary-table-and-region-availability) if you're unsure. Common regions: `West Europe`, `East US 2`, `Sweden Central`.
+
+> **Need custom Azure config?** If your organization requires specific naming, security controls, or cost tags, you can also create the resource via the [Azure Portal](https://portal.azure.com) (search for **Azure AI Services**) or via [Bicep templates](https://learn.microsoft.com/en-us/azure/foundry/how-to/create-resource-template).
 
 ### 2.2 Deploy the gpt-realtime-mini Model
 
-1. Once your resource is created, go to **Azure AI Foundry Portal**: [ai.azure.com](https://ai.azure.com)
-2. Select your subscription and resource
-3. Navigate to **Deployments** → **+ Create deployment**
+1. In the Foundry portal, select **Discover** (upper-right navigation) → **Models** (left pane)
+2. Search for `gpt-realtime-mini` and select it
+3. Click **Deploy** → **Custom settings**
 4. Configure:
 
    | Field | Value |
    |---|---|
-   | **Model** | `gpt-realtime-mini` |
-   | **Model version** | `2025-12-15` |
    | **Deployment name** | `gpt-realtime-mini` |
+   | **Model version** | Latest available |
    | **Deployment type** | Global Standard |
 
 5. Click **Deploy**
+
+> **Tip**: You can also use **Deploy → Default settings** for a one-click deployment with sensible defaults.
 
 ### 2.3 Gather Your Connection Details
 
@@ -322,15 +327,15 @@ After deployment, collect these values — you'll need them later:
 
 | Value | Where to find it |
 |---|---|
-| **Endpoint** | Resource → Overview → Endpoint (e.g., `https://ai-voiceagent-gb.cognitiveservices.azure.com`) |
-| **API Key** | Resource → Keys and Endpoint → Key 1 |
+| **Endpoint** | Project settings or Resource → Overview → Endpoint (e.g., `https://ai-voiceagent-gb.cognitiveservices.azure.com`) |
+| **API Key** | Project settings or Resource → Keys and Endpoint → Key 1 |
 | **Model deployment name** | The name you chose above (e.g., `gpt-realtime-mini`) |
 
 > **Write these down** or keep the portal tab open — you'll configure them in Lab 5.
 
 ### 2.4 Understanding Content Safety Filters
 
-Your Azure AI Foundry resource comes with **built-in content safety filters** that are active by default for all Realtime audio models:
+Your Foundry resource comes with **built-in content safety filters** that are active by default for all Realtime audio models:
 
 | Category | Default Threshold | What it filters |
 |---|---|---|
@@ -484,7 +489,7 @@ Open `ACSVoiceAgent.csproj` and review the dependencies:
 
 | Package | Version | Purpose |
 |---|---|---|
-| `Azure.AI.VoiceLive` | 1.0.0 | Voice Live SDK — manages the connection to GPT Realtime via Azure AI Foundry |
+| `Azure.AI.VoiceLive` | 1.0.0 | Voice Live SDK — manages the connection to GPT Realtime via Microsoft Foundry |
 | `Azure.Communication.CallAutomation` | 1.5.1 | ACS Call Automation — answer, transfer, hang up calls programmatically |
 | `Azure.Messaging.EventGrid` | 5.0.0 | Parse EventGrid events (IncomingCall triggers) |
 | `Azure.Identity` | 1.19.0 | Azure authentication (for production with Managed Identity) |
@@ -534,7 +539,7 @@ When ACS starts media streaming, it connects to `/ws`:
 
 1. Accept the WebSocket connection
 2. Create `AcsMediaStreamingHandler` (wraps the WebSocket)
-3. Create `AzureVoiceLiveService` (bridges to Azure AI Foundry)
+3. Create `AzureVoiceLiveService` (bridges to Microsoft Foundry)
 4. Wait for `CallConnected` session (via `CallSessionManager.WaitForSessionAsync()`)
 5. Start the Voice Live session
 6. **Audio loop**: receive ACS audio → base64 decode → send to Voice Live
@@ -910,7 +915,7 @@ info: Program[0] Call disconnected. CorrelationId: ...
 The Voice Live SDK has two main classes:
 
 ```csharp
-// Client: connects to Azure AI Foundry
+// Client: connects to Microsoft Foundry
 var client = new VoiceLiveClient(new Uri(endpoint), new AzureKeyCredential(apiKey));
 
 // Session: represents one active conversation
@@ -927,7 +932,7 @@ The **client** is the connection factory. The **session** is the active conversa
 
 | Property | Type | Description |
 |---|---|---|
-| `Model` | `string` | The deployment name of the realtime model to use. Must match the deployment name in your Azure AI Foundry resource (e.g., `gpt-realtime-mini`). This is **not** the catalog model name — it's the name you chose when deploying. |
+| `Model` | `string` | The deployment name of the realtime model to use. Must match the deployment name in your Foundry resource (e.g., `gpt-realtime-mini`). This is **not** the catalog model name — it's the name you chose when deploying. |
 | `Instructions` | `string` | The system prompt that guides the model's behavior for the entire session. Defines personality, rules, constraints, and response style. Loaded from `Prompts/system-prompt.txt` in our app. Can be up to tens of thousands of characters. |
 | `Temperature` | `float?` | Controls randomness in the model's output. Range: `0.0` (deterministic) to `1.0` (most creative). Default: `0.7`. For a customer service agent, lower values (0.6-0.7) keep responses consistent. Higher values make the agent more varied but less predictable. |
 
@@ -1497,7 +1502,7 @@ Or view in the Azure Portal → App Service → **Log stream**.
 The app uses in-process state (`ConcurrentDictionary<string, CallSession>`). A live call involves:
 1. HTTP requests (EventGrid webhook, ACS callbacks)
 2. A persistent WebSocket (bidirectional audio)
-3. A Voice Live session (server connection to Azure AI Foundry)
+3. A Voice Live session (server connection to Microsoft Foundry)
 
 All three are tied to the same process instance. If requests land on different instances, the call breaks. **Solution: ARR Affinity (sticky sessions).**
 
@@ -1559,7 +1564,7 @@ azd monitor --live      # Opens Live Metrics stream
 
 Your voice agent has three layers of content safety protection:
 
-**Layer 1: Azure AI Foundry Content Filters (Platform)**
+**Layer 1: Microsoft Foundry Content Filters (Platform)**
 
 Active by default on all Realtime audio models. Filters: Hate, Violence, Sexual, Self-Harm, Jailbreak, Protected Material. Zero code required.
 
@@ -1649,7 +1654,7 @@ Phone Call -> ACS -> EventGrid -> ASP.NET Core -> Voice Live SDK -> GPT Realtime
 
 | Technology | Role |
 |---|---|
-| **Azure AI Foundry** | Hosts the GPT Realtime model |
+| **Microsoft Foundry** | Hosts the GPT Realtime model |
 | **Azure AI Voice Live** | Adds telephony-grade audio features (noise, echo, HD voice, VAD) |
 | **Azure Communication Services** | Connects to the phone network (PSTN) |
 | **ASP.NET Core** | Bridges ACS audio with Voice Live — the "glue" |
