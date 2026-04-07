@@ -2,7 +2,7 @@
 
 **One-Day Training Lab — Step by Step**
 
-> **Branch**: `foundry-agent` — This training uses **Azure AI Foundry Agents** to manage tools, instructions, and voice configuration in the cloud. The agent is created and versioned via the AgentManager CLI tool. The C# application only handles the audio bridge and client-side tool dispatch.
+> **Branch**: `foundry-agent` — This training uses **Microsoft Foundry Agents** to manage tools, instructions, and voice configuration in the cloud. The agent is created and versioned via the AgentManager CLI tool. The C# application only handles the audio bridge and client-side tool dispatch.
 
 ---
 
@@ -13,14 +13,14 @@
 | **Duration** | Full day (~7 hours with breaks) |
 | **Level** | Intermediate — assumes Azure Portal familiarity and basic C# knowledge |
 | **What you'll build** | A production-grade AI voice agent backed by a Foundry Agent that answers phone calls, holds natural conversations, and executes business logic in real time |
-| **What you'll learn** | Generative AI fundamentals, Azure AI Foundry Agents, Voice Live SDK with agent mode, ACS telephony, function calling, file search (RAG), and cloud deployment with `azd` |
+| **What you'll learn** | Generative AI fundamentals, Microsoft Foundry Agents, Voice Live SDK with agent mode, ACS telephony, function calling, file search (RAG), and cloud deployment with `azd` |
 
 ### Agenda
 
 | Time | Lab | Topic |
 |---|---|---|
 | 09:00–09:45 | 1 | Concepts — GenAI, LLMs, and the Realtime API |
-| 09:45–10:30 | 2 | Azure AI Foundry — Create resources and deploy a Realtime model |
+| 09:45–10:30 | 2 | Microsoft Foundry — Create resources and deploy a Realtime model |
 | 10:30–10:45 | | *Break* |
 | 10:45–11:30 | 3 | Azure Communication Services — Phone numbers and Direct Routing |
 | 11:30–12:15 | 4 | Project walkthrough — Understand the voice agent codebase |
@@ -44,13 +44,12 @@
 - 1.6 The Voice Live API
 - 1.7 Key Takeaways
 
-**Lab 2: Azure AI Foundry — Create a Project, Deploy Models, and Set Up Authentication**
-- 2.1 Create an Azure AI Services Resource
-- 2.2 Create a Foundry Project
-- 2.3 Deploy the Chat Model (gpt-4.1-mini)
-- 2.4 Set Up Entra ID Authentication (RBAC)
-- 2.5 Understanding Content Safety Filters
-- 2.6 Checkpoint
+**Lab 2: Microsoft Foundry — Create a Project, Deploy Models, and Set Up Authentication**
+- 2.1 Create a Foundry Project and Resource
+- 2.2 Deploy the Chat Model (gpt-4.1-mini)
+- 2.3 Set Up Entra ID Authentication (RBAC)
+- 2.4 Understanding Content Safety Filters
+- 2.5 Checkpoint
 
 **Lab 3: Azure Communication Services — Phone Numbers and Direct Routing**
 - 3.1 Create an ACS Resource
@@ -171,9 +170,9 @@ Caller speaks --> Realtime Model (audio in, audio out) --> Caller hears
 
 The model natively understands audio input and generates audio output. No intermediate text conversion is required. Latency drops to ~200ms.
 
-### 1.3 Azure AI Foundry and the GPT Realtime API
+### 1.3 Microsoft Foundry and the GPT Realtime API
 
-**Azure AI Foundry** (formerly Azure AI Studio / Azure OpenAI Service) is the Microsoft platform for deploying and managing AI models. It provides:
+**Microsoft Foundry** (formerly Azure AI Foundry / Azure AI Studio / Azure OpenAI Service) is the Microsoft platform for deploying and managing AI models. It provides:
 
 - Model catalog with GPT-5 series, GPT-4.1 series, GPT Realtime, and other models
 - API endpoints with built-in content safety filters
@@ -242,7 +241,7 @@ Here's the complete architecture of what we're building:
 
 ```
 +----------+     +-----------------+      +------------------------------+      +----------------------+
-|          |     |                 |      |       App Service            |      |   Azure AI Foundry   |
+|          |     |                 |      |       App Service            |      |   Microsoft Foundry  |
 |  Caller  |---->|  ACS            |----> |                              |----> |                      |
 |  (Phone) |<----|  (PSTN Gateway) |<---- |  ASP.NET Core Minimal API    |<---- |  Voice Live Service  |
 |          |     |                 |      |                              |      |  Foundry Agent       |
@@ -281,77 +280,65 @@ Here's the complete architecture of what we're building:
 
 ---
 
-## Lab 2: Azure AI Foundry — Create a Project, Deploy Models, and Set Up Authentication
+## Lab 2: Microsoft Foundry — Create a Project, Deploy Models, and Set Up Authentication
 
 **Duration**: 45 minutes  
-**Objective**: Create an Azure AI Foundry project, deploy the chat model used by the Foundry Agent, and configure Entra ID authentication.
+**Objective**: Create a Microsoft Foundry project, deploy the chat model used by the Foundry Agent, and configure Entra ID authentication.
 
 > **Key difference from the main branch**: The Foundry Agent approach uses a cloud-managed agent that holds the tools, instructions, and voice configuration. Authentication uses Entra ID (no API keys). The agent uses `gpt-4.1-mini` as its reasoning model, while Voice Live handles the realtime audio processing behind the scenes.
 
-### 2.1 Create an Azure AI Services Resource
+### 2.1 Create a Foundry Project and Resource
 
-1. Go to the [Azure Portal](https://portal.azure.com)
-2. Click **Create a resource** → search for **Azure AI Services** (multi-service account)
-3. Click **Create** and fill in:
+The simplest way to get started is through the Foundry portal, which creates the underlying Azure resource automatically.
+
+1. Go to [Microsoft Foundry](https://ai.azure.com) and sign in
+2. Make sure the **New Foundry** toggle (top of the page) is **on**
+3. In the upper-left corner, click the project name → **Create new project**
+4. Give your project a name (e.g., `voiceagent-project`) and click **Create project**
+
+   Under **Advanced options** you can customize:
 
    | Field | Value |
    |---|---|
-   | **Subscription** | Your Azure subscription |
    | **Resource group** | Create new: `rg-voiceagent-training` |
-   | **Region** | `West Europe` (or your preferred region — must support Realtime models) |
-   | **Name** | `ai-voiceagent-<your-initials>` (must be globally unique) |
-   | **Pricing tier** | Standard S0 |
+   | **Location** | `West Europe` (must support Realtime and GPT-4.1 models) |
 
-4. Review and **Create**
+   If you leave defaults, a new resource group and **Foundry resource** are created automatically.
 
-> **Important**: The region must support both GPT Realtime and GPT-4.1 models. Check the [model availability table](https://learn.microsoft.com/en-us/azure/ai-services/openai/concepts/models#model-summary-table-and-region-availability) if you're unsure. Common regions: `West Europe`, `East US 2`, `Sweden Central`.
+> **Important**: The location must support both GPT Realtime and GPT-4.1 models. Check the [model availability table](https://learn.microsoft.com/en-us/azure/ai-services/openai/concepts/models#model-summary-table-and-region-availability) if you're unsure. Common regions: `West Europe`, `East US 2`, `Sweden Central`.
 
-### 2.2 Create a Foundry Project
+> **Need custom Azure config?** If your organization requires specific naming, security controls, or cost tags, you can also create the resource via the [Azure Portal](https://portal.azure.com) or via [Bicep templates](https://learn.microsoft.com/en-us/azure/foundry/how-to/create-resource-template).
 
-A Foundry Project is a workspace within Azure AI Foundry that organizes your agents, deployments, and data.
-
-1. Go to **Azure AI Foundry Portal**: [ai.azure.com](https://ai.azure.com)
-2. Select your subscription and AI Services resource
-3. Click **+ New project**
-4. Configure:
-
-   | Field | Value |
-   |---|---|
-   | **Project name** | `voiceagent-project` |
-   | **Hub** | Select or create a hub associated with your AI Services resource |
-
-5. Click **Create**
-
-After creation, note the **Project endpoint** — it has the format:
+After creation, note the **Project endpoint** from the project settings page — it has the format:
 ```
-https://<ai-services-name>.services.ai.azure.com/api/projects/<project-name>
+https://<foundry-resource-name>.services.ai.azure.com/api/projects/<project-name>
 ```
 
 > **Write this down** — you'll need it in Lab 5.
 
-### 2.3 Deploy the Chat Model (gpt-4.1-mini)
+### 2.2 Deploy the Chat Model (gpt-4.1-mini)
 
 The Foundry Agent uses `gpt-4.1-mini` as its reasoning model. Voice Live handles the audio-to-text and text-to-audio conversion using the realtime model behind the scenes.
 
-1. In the Foundry Portal, navigate to your project
-2. Go to **Deployments** → **+ Create deployment**
-3. Configure:
+1. In the Foundry portal, select **Discover** (upper-right navigation) → **Models** (left pane)
+2. Search for `gpt-4.1-mini` and select it
+3. Click **Deploy** → **Custom settings**
+4. Configure:
 
    | Field | Value |
    |---|---|
-   | **Model** | `gpt-4.1-mini` |
    | **Deployment name** | `gpt-4.1-mini` |
    | **Deployment type** | Global Standard |
 
-4. Click **Deploy**
+5. Click **Deploy**
 
 > **Why gpt-4.1-mini and not gpt-realtime-mini?** In the Foundry Agent approach, Voice Live manages the realtime audio session. The Foundry Agent definition specifies `gpt-4.1-mini` as the reasoning model, which handles tool selection and response generation. Voice Live bridges between the realtime audio stream and the agent's reasoning model.
 
-### 2.4 Set Up Entra ID Authentication (RBAC)
+### 2.3 Set Up Entra ID Authentication (RBAC)
 
-Unlike the main branch (which uses API keys), the Foundry Agent requires **Entra ID authentication** (`DefaultAzureCredential`). You need the **Cognitive Services User** role on the AI Services resource.
+Unlike the main branch (which uses API keys), the Foundry Agent requires **Entra ID authentication** (`DefaultAzureCredential`). You need the **Cognitive Services User** role on the Foundry resource.
 
-1. Go to Azure Portal → your **AI Services resource** → **Access control (IAM)**
+1. Go to Azure Portal → your **Foundry resource** → **Access control (IAM)**
 2. Click **+ Add** → **Add role assignment**
 3. Select role: **Cognitive Services User**
 4. Assign to: **User** → select your Azure account
@@ -361,9 +348,9 @@ For local development, `DefaultAzureCredential` will use your `az login` session
 
 > **Verify**: Run `az account show` to confirm you're logged in with the correct account.
 
-### 2.5 Understanding Content Safety Filters
+### 2.4 Understanding Content Safety Filters
 
-Your Azure AI Foundry resource comes with **built-in content safety filters** that are active by default:
+Your Foundry resource comes with **built-in content safety filters** that are active by default:
 
 | Category | Default Threshold | What it filters |
 |---|---|---|
@@ -378,8 +365,8 @@ These filters work at the platform level — no code changes required.
 
 ### Lab 2 Checkpoint
 
-- [ ] Azure AI Services resource created
-- [ ] Foundry Project created and project endpoint noted
+- [ ] Foundry project and resource created
+- [ ] Project endpoint noted
 - [ ] `gpt-4.1-mini` model deployed
 - [ ] Cognitive Services User role assigned to your account
 - [ ] `az login` verified
@@ -579,7 +566,7 @@ When ACS starts media streaming, it connects to `/ws`:
 
 1. Accept the WebSocket connection
 2. Create `AcsMediaStreamingHandler` (wraps the WebSocket)
-3. Create `AzureVoiceLiveService` (bridges to Azure AI Foundry)
+3. Create `AzureVoiceLiveService` (bridges to Microsoft Foundry)
 4. Wait for `CallConnected` session (via `CallSessionManager.WaitForSessionAsync()`)
 5. Start the Voice Live session
 6. **Audio loop**: receive ACS audio → base64 decode → send to Voice Live
@@ -809,6 +796,9 @@ Your local app runs on `localhost:5000`, but ACS needs a public URL of your app 
 ```bash
 # Login to Azure (if not already logged in)
 az login
+
+# Login to the dev tunnel service (required before creating tunnels)
+devtunnel user login
 
 # Create a tunnel with anonymous access (required for ACS/EventGrid)
 devtunnel create --allow-anonymous
@@ -1052,7 +1042,7 @@ info: Program[0] Call disconnected. CorrelationId: ...
 The Voice Live SDK has two main classes:
 
 ```csharp
-// Client: connects to Azure AI Foundry (Entra ID auth for agent mode)
+// Client: connects to Microsoft Foundry (Entra ID auth for agent mode)
 var client = new VoiceLiveClient(new Uri(endpoint), new DefaultAzureCredential());
 
 // Session: represents one active conversation, connected to a Foundry Agent
@@ -1075,7 +1065,7 @@ The **client** is the connection factory. The **session** is the active conversa
 
 | Property | Type | Description |
 |---|---|---|
-| `Model` | `string` | The deployment name of the realtime model to use. Must match the deployment name in your Azure AI Foundry resource (e.g., `gpt-realtime-mini`). This is **not** the catalog model name — it's the name you chose when deploying. |
+| `Model` | `string` | The deployment name of the realtime model to use. Must match the deployment name in your Microsoft Foundry resource (e.g., `gpt-realtime-mini`). This is **not** the catalog model name — it's the name you chose when deploying. |
 | `Instructions` | `string` | The system prompt that guides the model's behavior for the entire session. Defines personality, rules, constraints, and response style. Loaded from `Prompts/system-prompt.txt` in our app. Can be up to tens of thousands of characters. |
 | `Temperature` | `float?` | Controls randomness in the model's output. Range: `0.0` (deterministic) to `1.0` (most creative). Default: `0.7`. For a customer service agent, lower values (0.6-0.7) keep responses consistent. Higher values make the agent more varied but less predictable. |
 
@@ -1672,7 +1662,7 @@ Or view in the Azure Portal → App Service → **Log stream**.
 The app uses in-process state (`ConcurrentDictionary<string, CallSession>`). A live call involves:
 1. HTTP requests (EventGrid webhook, ACS callbacks)
 2. A persistent WebSocket (bidirectional audio)
-3. A Voice Live session (server connection to Azure AI Foundry)
+3. A Voice Live session (server connection to Microsoft Foundry)
 
 All three are tied to the same process instance. If requests land on different instances, the call breaks. **Solution: ARR Affinity (sticky sessions).**
 
@@ -1734,7 +1724,7 @@ azd monitor --live      # Opens Live Metrics stream
 
 Your voice agent has three layers of content safety protection:
 
-**Layer 1: Azure AI Foundry Content Filters (Platform)**
+**Layer 1: Microsoft Foundry Content Filters (Platform)**
 
 Active by default on all Realtime audio models. Filters: Hate, Violence, Sexual, Self-Harm, Jailbreak, Protected Material. Zero code required.
 
@@ -1825,7 +1815,7 @@ Phone Call -> ACS -> EventGrid -> ASP.NET Core -> Voice Live SDK -> Foundry Agen
 
 | Technology | Role |
 |---|---|
-| **Azure AI Foundry** | Hosts the AI models and manages the Foundry Agent |
+| **Microsoft Foundry** | Hosts the AI models and manages the Foundry Agent |
 | **Foundry Agent** | Cloud-managed agent with tools, instructions, and file search |
 | **Azure AI Voice Live** | Audio bridge between ACS and the Foundry Agent (agent mode) |
 | **Azure Communication Services** | Connects to the phone network (PSTN) |

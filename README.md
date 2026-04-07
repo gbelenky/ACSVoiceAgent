@@ -129,7 +129,7 @@ This file is loaded automatically when running in the `Development` environment 
 |---|---|
 | `DevTunnelUri` | Your dev tunnel URL (used as the callback and WebSocket base URL) |
 | `AcsConnectionString` | Connection string from your ACS resource (Azure Portal → Keys) |
-| `VoiceLiveEndpoint` | Azure AI Services endpoint (the `.cognitiveservices.azure.com` URL, provisioned by `azd up`) |
+| `VoiceLiveEndpoint` | Foundry resource endpoint (the `.services.ai.azure.com` URL, provisioned by `azd up`) |
 | `FoundryAgentName` | Name of the Foundry Agent (default: `VoiceLiveAgent`, created by `azd up`) |
 | `FoundryProjectName` | Name of the Foundry Project (default: `voiceAgentProject`, created by `azd up`) |
 | `FoundryAgentVersion` | Agent version string (set automatically on App Service by `azd up`, copy locally from Azure Portal for dev) |
