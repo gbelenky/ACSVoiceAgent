@@ -39,7 +39,7 @@
     "azureVoiceLiveEndpoint": {
       "type": "string",
       "metadata": {
-        "description": "Azure AI Voice Live endpoint (e.g. https://<name>.cognitiveservices.azure.com)"
+        "description": "Azure AI Voice Live endpoint (e.g. https://<name>.services.ai.azure.com)"
       }
     },
     "voiceLiveModel": {

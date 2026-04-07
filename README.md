@@ -94,7 +94,7 @@ The `gpt-realtime-mini` model is deployed through [Azure AI Foundry](https://ai.
    - Deployment name: `gpt-realtime-mini`
    - Deployment type: `Global Standard`
 3. After deployment, get the connection details:
-   - **Endpoint**: From the project's **Overview** page — the `.cognitiveservices.azure.com` URL of the underlying AI Services resource
+   - **Endpoint**: From the project's **Overview** page — the `.services.ai.azure.com` URL of the Foundry resource
    - **API Key**: From the AI Services resource in Azure Portal → **Resource Management → Keys and Endpoint**
 
 > **Check model availability**: In AI Foundry, the model catalog shows which regions support each model. Alternatively: `az cognitiveservices model list --location <region> --query "[?model.name=='gpt-realtime-mini']"`
@@ -135,7 +135,7 @@ Then edit `appsettings.Development.json`:
   "DevTunnelUri": "https://<your-tunnel-url>.devtunnels.ms",
   "AcsConnectionString": "endpoint=https://<your-acs>.communication.azure.com/;accesskey=<key>",
   "VoiceLiveApiKey": "<your-api-key>",
-  "VoiceLiveEndpoint": "https://<your-ai-services>.cognitiveservices.azure.com",
+  "VoiceLiveEndpoint": "https://<your-ai-services>.services.ai.azure.com",
   "VoiceLiveModel": "gpt-realtime-mini",
   "TransferPhoneNumber": "+1234567890"
 }
@@ -146,7 +146,7 @@ Then edit `appsettings.Development.json`:
 | `DevTunnelUri` | Your dev tunnel URL (callback and WebSocket base URL) |
 | `AcsConnectionString` | Connection string from your ACS resource (Azure Portal → ACS resource → Settings → Keys) |
 | `VoiceLiveApiKey` | API key from your Azure AI Services resource (Azure Portal → AI Services resource → Resource Management → Keys and Endpoint) |
-| `VoiceLiveEndpoint` | Endpoint URL from the same Keys and Endpoint page (the `.cognitiveservices.azure.com` URL) |
+| `VoiceLiveEndpoint` | Endpoint URL from the same Keys and Endpoint page (the `.services.ai.azure.com` URL) |
 | `VoiceLiveModel` | Model deployment name (default: `gpt-realtime-mini`) |
 | `TransferPhoneNumber` | Phone number for call transfers (E.164 format) |
 
@@ -212,7 +212,7 @@ Deploy to Azure using the [Azure Developer CLI](https://learn.microsoft.com/en-u
 azd init
 azd env set ACS_CONNECTION_STRING "endpoint=https://<your-acs>.communication.azure.com/;accesskey=<key>"
 azd env set VOICE_LIVE_API_KEY "<your-ai-services-api-key>"
-azd env set VOICE_LIVE_ENDPOINT "https://<your-ai-services>.cognitiveservices.azure.com"
+azd env set VOICE_LIVE_ENDPOINT "https://<your-ai-services>.services.ai.azure.com"
 azd env set TRANSFER_PHONE_NUMBER "+1234567890"
 azd env set VOICE_LIVE_MODEL "gpt-realtime-mini"
 azd env set ACS_RESOURCE_NAME "<your-acs-resource-name>"

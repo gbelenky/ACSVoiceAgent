@@ -327,7 +327,7 @@ After deployment, collect these values — you'll need them later:
 
 | Value | Where to find it |
 |---|---|
-| **Endpoint** | Project settings or Resource → Overview → Endpoint (e.g., `https://ai-voiceagent-gb.cognitiveservices.azure.com`) |
+| **Endpoint** | Project settings or Resource → Overview → Endpoint (e.g., `https://ai-voiceagent-gb.services.ai.azure.com`) |
 | **API Key** | Project settings or Resource → Keys and Endpoint → Key 1 |
 | **Model deployment name** | The name you chose above (e.g., `gpt-realtime-mini`) |
 
@@ -761,7 +761,7 @@ Then fill in your values:
   "DevTunnelUri": "https://<your-tunnel-url>.devtunnels.ms",
   "AcsConnectionString": "endpoint=https://<your-acs>.communication.azure.com/;accesskey=<key>",
   "VoiceLiveApiKey": "<your-api-key-from-lab-2>",
-  "VoiceLiveEndpoint": "https://<your-ai-resource>.cognitiveservices.azure.com",
+  "VoiceLiveEndpoint": "https://<your-ai-resource>.services.ai.azure.com",
   "VoiceLiveModel": "gpt-realtime-mini",
   "TransferPhoneNumber": "+441234567890"
 }
@@ -1405,7 +1405,7 @@ Now set the required environment variables:
 ```bash
 azd env set ACS_CONNECTION_STRING "endpoint=https://<your-acs>.communication.azure.com/;accesskey=<key>"
 azd env set VOICE_LIVE_API_KEY "<your-api-key>"
-azd env set VOICE_LIVE_ENDPOINT "https://<your-resource>.cognitiveservices.azure.com"
+azd env set VOICE_LIVE_ENDPOINT "https://<your-resource>.services.ai.azure.com"
 azd env set VOICE_LIVE_MODEL "gpt-realtime-mini"
 azd env set TRANSFER_PHONE_NUMBER "+441234567890"
 ```
