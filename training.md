@@ -1434,9 +1434,11 @@ azd env set VOICE_LIVE_API_KEY "<your-api-key>"
 azd env set VOICE_LIVE_ENDPOINT "https://<your-resource>.services.ai.azure.com"
 azd env set VOICE_LIVE_MODEL "gpt-realtime-mini"
 azd env set TRANSFER_PHONE_NUMBER "+441234567890"
+azd env set ACS_RESOURCE_NAME "<your-acs-resource-name>"
+azd env set ACS_RESOURCE_GROUP "<your-acs-resource-group>"
 ```
 
-> Replace the placeholder values with your actual values from Labs 2 and 3.
+> Replace the placeholder values with your actual values from Labs 2 and 3. The `ACS_RESOURCE_NAME` and `ACS_RESOURCE_GROUP` are needed for the EventGrid webhook setup that runs automatically after deployment.
 
 ### 8.4 Provision and Deploy
 
