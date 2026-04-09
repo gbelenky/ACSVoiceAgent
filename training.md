@@ -429,6 +429,20 @@ When someone calls your ACS phone number, here's what happens:
 
 **Why EventGrid instead of direct webhook?** EventGrid provides at-least-once delivery, retry logic, dead-letter queues, and subscription filtering — all without custom infrastructure.
 
+> **Advanced: Event Grid Filtering**
+>
+> A single ACS resource can have **multiple Event Grid subscriptions** for `IncomingCall` events, each pointing to a different webhook. However, only one handler can answer each call — the `incomingCallContext` token is single-use.
+>
+> To route different phone numbers to different applications, use **advanced filters** on the subscription:
+>
+> | Field | Operator | Value |
+> |---|---|---|
+> | `data.to.phoneNumber.value` | String contains | `+441234567890` |
+>
+> This way, calls to one number go to App A and calls to another number go to App B — no conflicts, no race conditions. You configure this under **Event Subscription → Filters → Advanced Filters** in the portal.
+>
+> For a single-app scenario (like this training), a single subscription with no filters is sufficient.
+
 ### 3.5 Set Up the IncomingCall Event Subscription
 
 We'll complete this configuration in Lab 5 after our dev tunnel is ready. For now, understand the setup:
@@ -726,6 +740,9 @@ Your local app runs on `localhost:5000`, but ACS needs a public URL of your app 
 # Login to Azure (if not already logged in)
 az login
 
+# Login to the dev tunnel service (required before creating tunnels)
+devtunnel user login
+
 # Create a tunnel with anonymous access (required for ACS/EventGrid)
 devtunnel create --allow-anonymous
 
@@ -795,6 +812,15 @@ Now that you have a public URL, register it with ACS:
    | **Endpoint** | `https://<your-tunnel>.devtunnels.ms/api/incomingCall` |
 
 4. Click **Create**
+
+> **Tip: Multiple apps sharing one ACS resource?** If your ACS resource handles calls for multiple phone numbers and you want to route them to different apps, add an **Advanced Filter** instead of creating a second subscription:
+>
+> **Filters tab → Advanced Filters → + Add new filter**
+> - Key: `data.to.phoneNumber.value`
+> - Operator: `String contains`
+> - Value: your phone number (e.g. `+441234567890`)
+>
+> This ensures only calls to *your* number trigger *your* webhook.
 
 EventGrid will send a validation request to your endpoint. The app handles this automatically — but the app needs to be running first. So let's start it.
 
