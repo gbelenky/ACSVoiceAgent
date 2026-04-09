@@ -91,7 +91,7 @@ hooks:
           }
         }
     posix:
-      shell: bash
+      shell: sh
       run: |
         # --- Generate appsettings.Development.json ---
         echo "Generating appsettings.Development.json from provisioned resources..."
@@ -132,9 +132,9 @@ hooks:
         echo "$output"
 
         # Extract and save resource IDs to azd env
-        agent_id=$(echo "$output" | grep -oP 'AGENT_ID:\s*\K\S+' | head -1)
-        vs_id=$(echo "$output" | grep -oP 'VECTORSTORE_ID:\s*\K\S+' | head -1)
-        file_id=$(echo "$output" | grep -oP 'FILE_ID:\s*\K\S+' | head -1)
+        agent_id=$(echo "$output" | sed -n 's/.*AGENT_ID:[[:space:]]*//p' | head -1)
+        vs_id=$(echo "$output" | sed -n 's/.*VECTORSTORE_ID:[[:space:]]*//p' | head -1)
+        file_id=$(echo "$output" | sed -n 's/.*FILE_ID:[[:space:]]*//p' | head -1)
 
         if [ -n "$agent_id" ]; then
           azd env set AGENT_ID "$agent_id"
@@ -200,7 +200,7 @@ hooks:
         Remove-Item $tmpFile -ErrorAction SilentlyContinue
         Write-Host "EventGrid subscription '$subName' configured to $webhookUrl"
     posix:
-      shell: bash
+      shell: sh
       run: |
         echo "Configuring EventGrid subscription for IncomingCall events..."
         ACS_RESOURCE_ID=$(az communication show --name "$ACS_RESOURCE_NAME" --resource-group "$ACS_RESOURCE_GROUP" --query "id" -o tsv)
@@ -237,7 +237,7 @@ hooks:
         azd env set VECTORSTORE_ID ""
         azd env set FILE_ID ""
     posix:
-      shell: bash
+      shell: sh
       run: |
         echo "=== Deleting Foundry Voice Live Agent ==="
         echo ""
