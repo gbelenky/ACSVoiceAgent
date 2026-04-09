@@ -1628,6 +1628,17 @@ Add additional rules for your domain:
 - Do not discuss competitors or make promises about pricing
 ```
 
+> **Strongly recommended**: For production voice agents, structure your system prompt following the [Realtime Prompting Guide](https://developers.openai.com/cookbook/examples/realtime_prompting_guide). This guide provides battle-tested patterns for real-time speech-to-speech models, including:
+> - **Prompt structure**: Organize into labeled sections — Role & Objective, Personality & Tone, Instructions/Rules, Tools, Conversation Flow, Safety & Escalation
+> - **Safety & Escalation**: Define explicit escalation triggers (threats, self-harm, repeated failures, user requests a human) with mandatory phrases and tool calls
+> - **Conversation Flow**: Break the dialogue into goal-driven phases with clear exit criteria to prevent the model from stalling or skipping steps
+> - **Tool call behavior**: Control when tools require confirmation vs. proactive execution, add preambles to mask latency
+> - **Unclear audio handling**: Instruct the model to ask for clarification instead of guessing when audio is noisy or unintelligible
+> - **Language constraints**: Pin the model to a target language to prevent accidental language switching
+> - **Reduce repetition**: Add variety rules to avoid robotic-sounding repeated phrases
+>
+> A well-structured system prompt is your **most effective content safety control** — it defines what the model will and won't do before platform filters or code guardrails are even needed.
+
 **Layer 3: Application Code (Guardrails)**
 
 In `HandleFunctionCallAsync()`, you can add validation before executing any tool:
