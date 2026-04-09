@@ -93,14 +93,14 @@
 
 **Lab 8: Deploy to Azure with `azd`**
 - 8.1 What is the Azure Developer CLI?
-- 8.2 The azure.yaml File
-- 8.3 The Bicep Infrastructure
-- 8.4 Authenticate with Azure
-- 8.5 Initialize the Project
-- 8.6 Provision Infrastructure
-- 8.7 Deploy the Application
-- 8.8 Verify the Deployment
-- 8.9 Key Takeaways
+- 8.2 Understand the Infrastructure
+- 8.3 Initialize and Configure the Environment
+- 8.4 Provision and Deploy
+- 8.5 Verify Deployment
+- 8.6 Verify the EventGrid Webhook
+- 8.7 Test in Production
+- 8.8 View Logs
+- 8.9 Useful `azd` Commands
 
 **Lab 9: Production Considerations — Scaling, Monitoring, and Content Safety**
 - 9.1 Hosting Requirements for Voice Agents
@@ -1464,22 +1464,36 @@ Open a browser and navigate to `https://app-xxxxx.azurewebsites.net/`:
 
 You should see: **"ACS Voice Agent with Voice Live SDK"**
 
-### 8.6 Update the EventGrid Webhook
+### 8.6 Verify the EventGrid Webhook
 
-Now that your app is deployed, you need to update the EventGrid subscription to point to your App Service URL instead of the dev tunnel:
+The `postdeploy` hook in `azure.yaml` automatically creates or updates the EventGrid subscription to point to your App Service URL. This runs every time you execute `azd deploy` or `azd up`.
 
-1. Go to Azure Portal → your **ACS resource** → **Events**
-2. Click the existing `incoming-call-webhook` subscription (created in Lab 5)
-3. Click **Edit** and update the **Endpoint** to:
+> **Prerequisite**: The hook requires `ACS_RESOURCE_NAME` and `ACS_RESOURCE_GROUP` to be set in your azd environment. If you didn't set them before deploying, the hook fails silently and you'll need to configure the webhook manually (see below).
+
+**Verify the subscription was created:**
+
+1. Go to Azure Portal → your **ACS resource** → **Events** → **Event Subscriptions**
+2. You should see a subscription named `incoming-call` pointing to:
    ```
    https://app-xxxxx.azurewebsites.net/api/incomingCall
    ```
-   (Replace `app-xxxxx` with your actual App Service hostname from step 8.5)
-4. Click **Save**
 
-EventGrid will re-validate the endpoint against your deployed app. Make sure the deployment completed successfully before updating.
+**If the subscription is missing** (hook failed), create it manually:
 
-> **Tip**: You can also delete the old subscription and create a new one if editing doesn't work. Use the same settings as Lab 5.3 but with the App Service URL.
+1. Click **+ Event Subscription**
+2. Fill in:
+
+   | Field | Value |
+   |---|---|
+   | **Name** | `incoming-call` |
+   | **Event Schema** | Event Grid Schema |
+   | **Filter to Event Types** | Check only `Incoming Call` |
+   | **Endpoint Type** | Web Hook |
+   | **Endpoint** | `https://app-xxxxx.azurewebsites.net/api/incomingCall` |
+
+3. Click **Create**
+
+> **Tip**: If you still have the old dev tunnel subscription from Lab 5, delete it first — or set `ACS_RESOURCE_NAME` and `ACS_RESOURCE_GROUP` in your azd env and run `azd deploy` again to let the hook fix it automatically.
 
 ### 8.7 Test in Production
 

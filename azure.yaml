@@ -23,7 +23,7 @@ hooks:
         Write-Host "appsettings.Development.json created successfully"
         Write-Host "NOTE: Set DevTunnelUri to your dev tunnel URL before running locally"
     posix:
-      shell: bash
+      shell: sh
       run: |
         echo "Generating appsettings.Development.json from provisioned resources..."
         cat > appsettings.Development.json << EOF
@@ -71,7 +71,7 @@ hooks:
         Remove-Item $tmpFile -ErrorAction SilentlyContinue
         Write-Host "EventGrid subscription '$subName' configured to $webhookUrl"
     posix:
-      shell: bash
+      shell: sh
       run: |
         echo "Configuring EventGrid subscription for IncomingCall events..."
         ACS_RESOURCE_ID=$(az communication show --name "$ACS_RESOURCE_NAME" --resource-group "$ACS_RESOURCE_GROUP" --query "id" -o tsv)
